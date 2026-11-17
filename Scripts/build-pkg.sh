@@ -1,0 +1,54 @@
+#!/bin/bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+APP_NAME="Nyathing.app"
+APP_DIR="$ROOT/.build/package/$APP_NAME"
+CONTENTS="$APP_DIR/Contents"
+RESOURCES="$CONTENTS/Resources"
+DIST="$ROOT/dist"
+
+swift build -c release
+rm -rf "$APP_DIR" "$DIST"
+mkdir -p "$CONTENTS/MacOS" "$RESOURCES" "$DIST"
+cp .build/release/nyathing "$CONTENTS/MacOS/nyathing"
+cp -R .build/release/Nyathing_Nyathing.bundle "$RESOURCES/"
+cat > "$CONTENTS/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>nyathing</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.nyathing.Nyathing</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Nyathing</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+
+pkgbuild \
+  --component "$APP_DIR" \
+  --install-location /Applications \
+  --identifier com.nyathing.pkg \
+  --version 1.0.0 \
+  "$DIST/Nyathing-1.0.0.pkg"
+
+echo "Created $DIST/Nyathing-1.0.0.pkg"

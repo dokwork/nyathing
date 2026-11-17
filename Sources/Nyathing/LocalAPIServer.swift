@@ -12,13 +12,14 @@ final class LocalAPIServer {
     private var clients: Set<Int32> = []
     private var stopped = true
 
-    init(onStart: @escaping (String) throws -> String,
+    init(socketPath: String = LocalAPIServer.socketPath,
+         onStart: @escaping (String) throws -> String,
          onKeepalive: @escaping (String) throws -> Void,
          onStop: @escaping (String) throws -> Void) {
         self.onStart = onStart
         self.onKeepalive = onKeepalive
         self.onStop = onStop
-        self.socketPath = Self.socketPath
+        self.socketPath = socketPath
     }
 
     deinit { stop() }

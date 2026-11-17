@@ -1,74 +1,48 @@
 # Nyathing
 
-A native macOS menu bar animation player, built with Swift and AppKit.
+Nyathing is a native macOS menu bar animation player for macOS 12 and later. It
+plays horizontal PNG sprite sheets and exposes a local Unix-socket API so other
+programs can control animations independently of their own lifecycle.
 
-## Step 4: Local client API manual check
+## Build and run
 
-Build and launch from the repository root:
+Requires macOS 12+ and Swift 5.9 or later. From the repository root:
 
 ```sh
 swift build
 swift run nyathing
 ```
 
-The app creates a Unix socket at `$XDG_RUNTIME_DIR/nyathing.sock` when
-`XDG_RUNTIME_DIR` is set; otherwise it uses `$TMPDIR/nyathing-<uid>.sock`.
-Only the current user can access it. Connect with any Unix-socket client and send
-one JSON object per line. The server returns one JSON object per command.
+Run the automated tests with `swift test`. The app is an accessory/menu bar app;
+launch it in a logged-in desktop session. Quit it from its menu or terminate its
+process from a terminal.
 
-This Python example starts an animation, keeps it alive, and stops it using one
-connection. If `missing_36x36.png` is not installed, the built-in ghost animation
-is used instead.
+## Install
+
+Build the unsigned installer package with:
 
 ```sh
-python3 - <<'PY'
-import json
-import os
-import socket
-import tempfile
-
-runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-socket_path = os.path.join(
-    runtime_dir or os.environ.get("TMPDIR", tempfile.gettempdir()),
-    "nyathing.sock" if runtime_dir else f"nyathing-{os.getuid()}.sock",
-)
-with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-    client.connect(socket_path)
-    stream = client.makefile("rwb")
-
-    def command(value):
-        stream.write(json.dumps(value).encode() + b"\n")
-        stream.flush()
-        response = json.loads(stream.readline())
-        print(response)
-        return response
-
-    activity_id = command({"command": "start", "animation": "missing_36x36.png"})["activity_id"]
-    command({"command": "keepalive", "activity_id": activity_id})
-    command({"command": "stop", "activity_id": activity_id})
-PY
+Scripts/build-pkg.sh
 ```
 
-Check that start returns an activity ID, keepalive and stop return `{"ok":true}`,
-and stopping removes the activity's status item. Start the same animation from
-multiple clients and confirm the shared status item shows an activity count;
-start different animations and confirm they receive separate status items.
+The script builds a release `.app` bundle and creates
+`dist/Nyathing-1.0.0.pkg`. Open the package and follow the Installer prompts to
+install `Nyathing.app` in `/Applications`. Launch it from Finder. The installer
+is currently unsigned and not notarized; macOS may require the user to approve
+opening it. Signing and notarization are not included in this build process.
 
-To check timeout behavior, start an activity and do not send another keepalive.
-After the configured `activity_timeout_seconds` (5 seconds by default), verify
-the activity ends and the main status item displays the warning count and
-explosion effect. Explicit stop must not increase the count. The count remains
-after the explosion ends and can be reset from the main menu. When the explosion
-asset is missing or invalid, the warning state should still appear.
+Future download: [Nyathing package releases](https://github.com/OWNER/REPOSITORY/releases)
 
-The keepalive interval expected of clients is `keepalive_interval_seconds`
-(5 seconds by default); timeout is configured by `activity_timeout_seconds` in
-`$XDG_CONFIG_HOME/nyathing/config.toml`, or `~/.config/nyathing/config.toml` when
-`XDG_CONFIG_HOME` is unset. The sibling `animations/` directory contains
-animation assets. The app creates a populated configuration and seeds
-`ghost_36x36.png` on first launch.
+## Configuration and animations
 
-Configuration template:
+On first launch, Nyathing creates its configuration directory and seeds a
+sample ghost animation:
+
+- Configuration: `$XDG_CONFIG_HOME/nyathing/config.toml`, or
+  `~/.config/nyathing/config.toml` when `XDG_CONFIG_HOME` is unset.
+- Animation directory: `animations/` beside `config.toml`.
+
+The complete initial configuration is:
 
 ```toml
 # Seconds between client keepalive messages; must be greater than zero.
@@ -81,52 +55,95 @@ auto_start = false
 default_animation = "ghost_36x36.png"
 ```
 
-The main menu also provides About, Quit, Reset Disconnected Count, Reload
-Configuration and Animations, and Open Configuration. Reload clears active
-animations and the warning count. Status-item placement is managed by macOS and
-visibility may be limited when the menu bar is crowded.
+All settings are required. Durations are numeric seconds and must be positive.
+`default_animation` must name a valid animation file in `animations/`.
 
-## Step 5: Auto-start and error-handling manual check
+Animation files are single horizontal PNG sprite sheets. Supported frame sizes
+are 36x36 and 54x36 pixels; image height must equal the frame height and image
+width must be a positive multiple of it. Name files with the frame size suffix,
+for example `nyan_54x36.png`. The app validates assets on startup and reload;
+invalid assets are ignored and logged. Playback runs at 10 frames per second.
 
-Set `auto_start = true` in the configuration and launch Nyathing. The app writes
-`com.nyathing.Nyathing.plist` beside `config.toml`; it does not install or manage
-the LaunchAgent. Inspect `ProgramArguments` and make sure it points to the
-executable at its final, stable location. If you relocate the executable, launch
-the app again to regenerate the plist. Copy the prepared file to
-`~/Library/LaunchAgents/com.nyathing.Nyathing.plist`, then load it manually:
+Use **Reload Configuration and Animations** in the menu after changing
+configuration or animation files. Reload clears active client activities and
+the disconnected-client count.
+
+## Local client API
+
+The API uses a current-user Unix domain socket and newline-delimited JSON (one
+JSON object and one response per line). The socket path is
+`$XDG_RUNTIME_DIR/nyathing.sock` when `XDG_RUNTIME_DIR` is set, otherwise
+`$TMPDIR/nyathing-<uid>.sock`. Requests support multiple commands per connection
+and multiple simultaneous connections. Socket permissions and peer credentials
+restrict access to the current user.
+
+Commands:
+
+- `{"command":"start","animation":"nyan_54x36.png"}` starts an activity and
+  returns `{"ok":true,"activity_id":"…"}`. An unavailable animation uses the
+  built-in ghost animation.
+- `{"command":"keepalive","activity_id":"…"}` refreshes an activity.
+- `{"command":"stop","activity_id":"…"}` ends it explicitly.
+
+Keepalive and stop success responses are `{"ok":true}`. Invalid requests and
+unknown activity IDs return `{"ok":false,"error":"…"}`. Clients should send
+keepalives at `keepalive_interval_seconds`; an activity expires after
+`activity_timeout_seconds` without one. Expiration increments the main menu-bar
+warning count and plays `explosion_36x36.png` when available. Explicit stop does
+not increment the count. The menu can reset the count.
+
+A minimal Python example:
+
+```python
+import json
+import os
+import socket
+import tempfile
+
+runtime = os.environ.get("XDG_RUNTIME_DIR")
+path = os.path.join(runtime or os.environ.get("TMPDIR", tempfile.gettempdir()),
+                    "nyathing.sock" if runtime else f"nyathing-{os.getuid()}.sock")
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    client.connect(path)
+    stream = client.makefile("rwb")
+    def command(value):
+        stream.write(json.dumps(value).encode() + b"\n")
+        stream.flush()
+        return json.loads(stream.readline())
+    activity = command({"command": "start", "animation": "nyan_54x36.png"})["activity_id"]
+    command({"command": "keepalive", "activity_id": activity})
+    command({"command": "stop", "activity_id": activity})
+```
+
+## Optional login launch
+
+Set `auto_start = true` and launch Nyathing. It prepares
+`com.nyathing.Nyathing.plist` beside the configuration; it does not install or
+manage the LaunchAgent. Install and load it manually:
 
 ```sh
 mkdir -p ~/Library/LaunchAgents
-cp "$XDG_CONFIG_HOME/nyathing/com.nyathing.Nyathing.plist" \
+cp "${XDG_CONFIG_HOME:-$HOME/.config}/nyathing/com.nyathing.Nyathing.plist" \
   ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
-launchctl bootstrap "gui/$(id -u)" \
-  ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
 ```
 
-If `XDG_CONFIG_HOME` is unset, use `~/.config/nyathing/` as the source directory.
-Confirm that Nyathing starts at the next login. To stop and remove the manually
-installed agent, run:
+To unload and remove the manually installed agent:
 
 ```sh
-launchctl bootout "gui/$(id -u)" \
-  ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
 rm ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
 ```
 
-Set `auto_start = false` to stop preparing/updating the plist; Nyathing does not
-unload or remove an already installed agent.
+The plist uses the app executable's current path. If Nyathing is moved,
+regenerate the plist by launching it again with `auto_start = true`.
 
-To check socket safety, first run one instance and confirm a second instance
-reports that the socket is already active without removing it. For a stale owned
-socket, quit Nyathing, leave its socket path behind, and launch again; it should
-recover the socket. For an unsafe path, create a regular file at the socket path
-in a controlled temporary runtime directory and launch Nyathing with
-`XDG_RUNTIME_DIR` set to that directory; it must refuse to remove the file.
+## Troubleshooting
 
-Startup errors are written to `$XDG_STATE_HOME/nyathing/nyathing.log`, or
-`~/.local/state/nyathing/nyathing.log` when `XDG_STATE_HOME` is unset. Check that
-an invalid configuration or socket startup failure displays an error dialog
-with the full log path and an **Open Full Log** button. The app remains available
-where startup can continue safely; configuration/API startup failures are
-reported and leave the local API unavailable until configuration is corrected
-and reloaded. The log directory and file are restricted to the current user.
+Startup and runtime diagnostics are written to
+`$XDG_STATE_HOME/nyathing/nyathing.log`, or
+`~/.local/state/nyathing/nyathing.log` when `XDG_STATE_HOME` is unset. Startup
+errors show an alert with an **Open Full Log** button. If the socket path is
+already in use, quit the existing instance before launching another. Invalid
+configuration or animation files are reported in the log; correct them and
+reload.

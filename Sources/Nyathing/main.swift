@@ -14,12 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainFrames: [NSImage] = []
     private var mainFrameIndex = 0
     private var activeAnimations: [String: ActiveAnimation] = [:]
-    private var activities: [UUID: String] = [:]
-    private var activityDeadlines: [UUID: UInt64] = [:]
+    private var lifecycle = ActivityLifecycle()
     private var activityTimeout: TimeInterval = 5
     private var apiServer: LocalAPIServer?
     private var apiGeneration = 0
-    private var disconnectedCount = 0
     private var warningFrames: [NSImage] = []
     private var warningFrameIndex = 0
 
@@ -62,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func resetDisconnectedCount() {
-        disconnectedCount = 0
+        lifecycle.resetDisconnectedCount()
         warningFrames = []
         warningFrameIndex = 0
         updateMainStatusItem()
@@ -133,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onStop: { [weak self] activityID in
                 try DispatchQueue.main.sync {
                     guard let self, self.apiGeneration == generation,
-                          let id = UUID(uuidString: activityID), self.activities[id] != nil else {
+                          let id = UUID(uuidString: activityID), self.lifecycle.animation(for: id) != nil else {
                         throw LocalAPIError.unknownActivity
                     }
                     self.stopActivity(id)
@@ -148,9 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSStatusBar.system.removeStatusItem(active.statusItem)
         }
         activeAnimations.removeAll()
-        activities.removeAll()
-        activityDeadlines.removeAll()
-        disconnectedCount = 0
+        lifecycle.reset()
         warningFrames = []
         warningFrameIndex = 0
         mainFrameIndex = 0
@@ -159,9 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Begins an activity for a named animation, sharing its status item with matching activities.
     @discardableResult
     func startActivity(animation filename: String) -> UUID {
-        let id = UUID()
-        activities[id] = filename
-        scheduleActivityExpiration(id)
+        let deadline = DispatchTime.now() + activityTimeout
+        let deadlineUptime = deadline.uptimeNanoseconds
+        let id = lifecycle.start(animation: filename, deadline: deadlineUptime)
+        scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
         if let active = activeAnimations[filename] {
             active.activityIDs.insert(id)
             updateActivityStatus(active)
@@ -169,10 +166,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
-        let animation = SpriteAnimation.loadAll(in: directory)[filename]
-        let frames = animation?.frames ?? Self.builtInGhostFrames()
+        let animations = SpriteAnimation.loadAll(in: directory)
+        let frames: [NSImage]
+        switch AnimationResolution.resolve(filename, available: animations) {
+        case .asset(let animation): frames = animation.frames
+        case .builtInGhost: frames = Self.builtInGhostFrames()
+        }
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let active = ActiveAnimation(statusItem: statusItem, frames: frames, activityIDs: [id])
+        let active = ActiveAnimation(filename: filename, statusItem: statusItem, frames: frames, activityIDs: [id])
         activeAnimations[filename] = active
         updateActivityStatus(active)
         return id
@@ -180,9 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Ends an activity without counting it as a disconnect.
     func stopActivity(_ id: UUID) {
-        guard let filename = activities.removeValue(forKey: id),
-              let active = activeAnimations[filename] else { return }
-        activityDeadlines.removeValue(forKey: id)
+        guard let filename = lifecycle.stop(id) else { return }
+        removeActivityFromStatusItem(id, animation: filename)
+    }
+
+    private func removeActivityFromStatusItem(_ id: UUID, animation filename: String) {
+        guard let active = activeAnimations[filename] else { return }
         active.activityIDs.remove(id)
         if active.activityIDs.isEmpty {
             NSStatusBar.system.removeStatusItem(active.statusItem)
@@ -192,9 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Records a timed-out activity and displays its explosion effect when available.
-    func recordActivityTimeout() {
-        disconnectedCount += 1
+    /// Displays the timeout effect after lifecycle accounting records an expired activity.
+    private func presentActivityTimeout() {
         let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
         if let explosion = SpriteAnimation.loadAll(in: directory)["explosion_36x36.png"] {
             warningFrames = explosion.frames
@@ -210,20 +213,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = active.statusItem.button, !active.frames.isEmpty else { return }
         button.image = active.frames[active.frameIndex]
         button.image?.isTemplate = false
-        button.title = active.activityIDs.count > 1 ? "\(active.activityIDs.count)" : ""
+        let count = lifecycle.activityCount(for: active.filename)
+        button.title = count > 1 ? "\(count)" : ""
         button.image?.accessibilityDescription = "Active Nyathing animation"
     }
 
     private func keepaliveActivity(_ id: UUID) -> Bool {
-        guard activities[id] != nil else { return false }
-        scheduleActivityExpiration(id)
+        let deadline = DispatchTime.now() + activityTimeout
+        let deadlineUptime = deadline.uptimeNanoseconds
+        guard lifecycle.keepalive(id, deadline: deadlineUptime) else { return false }
+        scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
         return true
     }
 
-    private func scheduleActivityExpiration(_ id: UUID) {
-        let deadline = DispatchTime.now() + activityTimeout
-        let deadlineUptime = deadline.uptimeNanoseconds
-        activityDeadlines[id] = deadlineUptime
+    private func scheduleActivityExpiration(_ id: UUID, deadlineUptime: UInt64) {
+        let deadline = DispatchTime(uptimeNanoseconds: deadlineUptime)
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: deadline) { [weak self] in
             DispatchQueue.main.async {
                 self?.expireActivity(id, deadlineUptime: deadlineUptime)
@@ -232,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func expireActivity(_ id: UUID, deadlineUptime: UInt64) {
-        guard activityDeadlines[id] == deadlineUptime else { return }
+        guard lifecycle.deadline(for: id) == deadlineUptime else { return }
         let now = DispatchTime.now().uptimeNanoseconds
         guard now >= deadlineUptime else {
             let remaining = Double(deadlineUptime - now) / 1_000_000_000
@@ -243,8 +247,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        stopActivity(id)
-        recordActivityTimeout()
+        guard let filename = lifecycle.expire(id, deadline: deadlineUptime) else { return }
+        removeActivityFromStatusItem(id, animation: filename)
+        presentActivityTimeout()
     }
 
     private func advanceAnimations() {
@@ -265,17 +270,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateMainStatusItem() {
         guard let button = mainStatusItem?.button else { return }
-        if disconnectedCount > 0 {
+        if lifecycle.disconnectedCount > 0 {
             button.image = warningFrames.isEmpty
                 ? NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Disconnected clients")
                 : warningFrames[warningFrameIndex]
-            button.title = "\(disconnectedCount)"
+            button.title = "\(lifecycle.disconnectedCount)"
         } else {
             button.image = mainFrames.isEmpty ? nil : mainFrames[mainFrameIndex]
             button.title = ""
         }
         button.image?.isTemplate = false
-        button.image?.accessibilityDescription = disconnectedCount > 0 ? "Disconnected clients" : "Nyathing animation"
+        button.image?.accessibilityDescription = lifecycle.disconnectedCount > 0 ? "Disconnected clients" : "Nyathing animation"
     }
 
     private static func builtInGhostFrames() -> [NSImage] {
@@ -295,12 +300,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 private final class ActiveAnimation {
+    let filename: String
     let statusItem: NSStatusItem
     let frames: [NSImage]
     var frameIndex = 0
     var activityIDs: Set<UUID>
 
-    init(statusItem: NSStatusItem, frames: [NSImage], activityIDs: Set<UUID>) {
+    init(filename: String, statusItem: NSStatusItem, frames: [NSImage], activityIDs: Set<UUID>) {
+        self.filename = filename
         self.statusItem = statusItem
         self.frames = frames
         self.activityIDs = activityIDs

@@ -94,7 +94,11 @@ struct AppConfiguration {
     }
 
     static func load() throws -> AppConfiguration {
-        let directory = configurationDirectory
+        try load(in: configurationDirectory)
+    }
+
+    /// Loads and validates configuration and its selected animation from a configuration directory.
+    static func load(in directory: URL) throws -> AppConfiguration {
         let configURL = directory.appendingPathComponent("config.toml")
         let animationsDirectory = directory.appendingPathComponent("animations", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -139,6 +143,8 @@ struct AppConfiguration {
               !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
             throw ConfigError.invalidValue("default_animation must be a filename string")
         }
+        let animationURL = animationsDirectory.appendingPathComponent(name)
+        _ = try SpriteAnimation.load(from: animationURL)
         return AppConfiguration(keepaliveInterval: try number("keepalive_interval_seconds"),
                                 activityTimeout: try number("activity_timeout_seconds"),
                                 autoStart: rawAuto == "true", defaultAnimation: name)
@@ -200,6 +206,16 @@ struct SpriteAnimation {
             catch { NyathingLog.write("Ignoring animation \(file.lastPathComponent): \(error.localizedDescription)") }
         }
         return result
+    }
+}
+
+enum AnimationResolution {
+    case asset(SpriteAnimation)
+    case builtInGhost
+
+    static func resolve(_ filename: String, available: [String: SpriteAnimation]) -> AnimationResolution {
+        guard let animation = available[filename] else { return .builtInGhost }
+        return .asset(animation)
     }
 }
 
