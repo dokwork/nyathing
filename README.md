@@ -75,7 +75,7 @@ Configuration template:
 keepalive_interval_seconds = 5
 # Seconds without a keepalive before an activity expires; must be greater than zero.
 activity_timeout_seconds = 5
-# Whether Nyathing should install a user LaunchAgent (implemented in a later step).
+# Whether to prepare a user LaunchAgent plist for manual installation.
 auto_start = false
 # Animation filename in the sibling animations directory.
 default_animation = "ghost_36x36.png"
@@ -85,3 +85,48 @@ The main menu also provides About, Quit, Reset Disconnected Count, Reload
 Configuration and Animations, and Open Configuration. Reload clears active
 animations and the warning count. Status-item placement is managed by macOS and
 visibility may be limited when the menu bar is crowded.
+
+## Step 5: Auto-start and error-handling manual check
+
+Set `auto_start = true` in the configuration and launch Nyathing. The app writes
+`com.nyathing.Nyathing.plist` beside `config.toml`; it does not install or manage
+the LaunchAgent. Inspect `ProgramArguments` and make sure it points to the
+executable at its final, stable location. If you relocate the executable, launch
+the app again to regenerate the plist. Copy the prepared file to
+`~/Library/LaunchAgents/com.nyathing.Nyathing.plist`, then load it manually:
+
+```sh
+mkdir -p ~/Library/LaunchAgents
+cp "$XDG_CONFIG_HOME/nyathing/com.nyathing.Nyathing.plist" \
+  ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
+launchctl bootstrap "gui/$(id -u)" \
+  ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
+```
+
+If `XDG_CONFIG_HOME` is unset, use `~/.config/nyathing/` as the source directory.
+Confirm that Nyathing starts at the next login. To stop and remove the manually
+installed agent, run:
+
+```sh
+launchctl bootout "gui/$(id -u)" \
+  ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
+rm ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
+```
+
+Set `auto_start = false` to stop preparing/updating the plist; Nyathing does not
+unload or remove an already installed agent.
+
+To check socket safety, first run one instance and confirm a second instance
+reports that the socket is already active without removing it. For a stale owned
+socket, quit Nyathing, leave its socket path behind, and launch again; it should
+recover the socket. For an unsafe path, create a regular file at the socket path
+in a controlled temporary runtime directory and launch Nyathing with
+`XDG_RUNTIME_DIR` set to that directory; it must refuse to remove the file.
+
+Startup errors are written to `$XDG_STATE_HOME/nyathing/nyathing.log`, or
+`~/.local/state/nyathing/nyathing.log` when `XDG_STATE_HOME` is unset. Check that
+an invalid configuration or socket startup failure displays an error dialog
+with the full log path and an **Open Full Log** button. The app remains available
+where startup can continue safely; configuration/API startup failures are
+reported and leave the local API unavailable until configuration is corrected
+and reloaded. The log directory and file are restricted to the current user.

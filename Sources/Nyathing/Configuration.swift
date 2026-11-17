@@ -13,7 +13,7 @@ struct AppConfiguration {
     keepalive_interval_seconds = 5
     # Seconds without a keepalive before an activity expires; must be greater than zero.
     activity_timeout_seconds = 5
-    # Whether Nyathing should install a user LaunchAgent (implemented in a later step).
+    # Whether to prepare a user LaunchAgent plist for manual installation.
     auto_start = false
     # Animation filename in the sibling animations directory.
     default_animation = \"ghost_36x36.png\"
@@ -197,7 +197,7 @@ struct SpriteAnimation {
         var result: [String: SpriteAnimation] = [:]
         for file in files where file.pathExtension.lowercased() == "png" {
             do { result[file.lastPathComponent] = try load(from: file) }
-            catch { NSLog("Ignoring animation %@: %@", file.lastPathComponent, error.localizedDescription) }
+            catch { NyathingLog.write("Ignoring animation \(file.lastPathComponent): \(error.localizedDescription)") }
         }
         return result
     }

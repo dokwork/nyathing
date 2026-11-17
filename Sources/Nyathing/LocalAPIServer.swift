@@ -41,6 +41,7 @@ final class LocalAPIServer {
         try removeStaleSocketIfNeeded()
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Self.posixError() }
+        var boundSocket = false
         do {
             var address = try Self.address(for: socketPath)
             let result = withUnsafePointer(to: &address) {
@@ -49,6 +50,7 @@ final class LocalAPIServer {
                 }
             }
             guard result == 0 else { throw Self.posixError() }
+            boundSocket = true
             guard chmod(socketPath, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
                 throw Self.posixError()
             }
@@ -59,7 +61,13 @@ final class LocalAPIServer {
             lock.unlock()
         } catch {
             Darwin.close(fd)
-            _ = unlink(socketPath)
+            if boundSocket {
+                var info = stat()
+                if lstat(socketPath, &info) == 0,
+                   (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == getuid() {
+                    _ = unlink(socketPath)
+                }
+            }
             throw error
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -129,7 +137,7 @@ final class LocalAPIServer {
                 lock.unlock()
                 if shouldStop || errno == EBADF || errno == EINVAL { return }
                 if errno == EINTR { continue }
-                NSLog("Unable to accept local API connection: %@", Self.posixError().localizedDescription)
+                NyathingLog.write("Unable to accept local API connection: \(Self.posixError().localizedDescription)")
                 continue
             }
             lock.lock()

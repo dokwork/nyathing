@@ -75,7 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openConfiguration() {
         let url = AppConfiguration.configurationDirectory.appendingPathComponent("config.toml")
         guard NSWorkspace.shared.open(url) else {
-            NSLog("Unable to open configuration at %@", url.path)
+            NyathingLog.report(NSError(domain: "Nyathing", code: 1,
+                                       userInfo: [NSLocalizedDescriptionKey: "Unable to open configuration at \(url.path)"]),
+                               context: "Unable to open configuration")
             return
         }
     }
@@ -87,6 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clearRuntimeState()
         do {
             let configuration = try AppConfiguration.load()
+            if configuration.autoStart {
+                do {
+                    try LaunchAgentSupport.prepare(in: AppConfiguration.configurationDirectory)
+                    NyathingLog.write("Prepared user LaunchAgent plist at \(AppConfiguration.configurationDirectory.appendingPathComponent("com.nyathing.Nyathing.plist").path)")
+                } catch {
+                    NyathingLog.report(error, context: "Unable to prepare LaunchAgent plist")
+                }
+            }
             activityTimeout = configuration.activityTimeout
             let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
             let animations = SpriteAnimation.loadAll(in: directory)
@@ -96,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mainFrames = selected.frames
             try startAPIServer()
         } catch {
-            NSLog("Unable to load configuration or start local API: %@", error.localizedDescription)
+            NyathingLog.report(error, context: "Unable to load configuration or start local API")
             mainFrames = Self.builtInGhostFrames()
         }
         mainFrameIndex = 0
@@ -191,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             warningFrameIndex = 0
         } else {
             warningFrames = []
-            NSLog("Explosion animation explosion_36x36.png is missing or invalid")
+            NyathingLog.write("Explosion animation explosion_36x36.png is missing or invalid")
         }
         updateMainStatusItem()
     }
