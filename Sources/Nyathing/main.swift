@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainFrameIndex = 0
     private var activeAnimations: [String: ActiveAnimation] = [:]
     private var activities: [UUID: String] = [:]
+    private var activityDeadlines: [UUID: UInt64] = [:]
+    private var activityTimeout: TimeInterval = 5
+    private var apiServer: LocalAPIServer?
+    private var apiGeneration = 0
     private var disconnectedCount = 0
     private var warningFrames: [NSImage] = []
     private var warningFrameIndex = 0
@@ -31,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         animationTimer?.invalidate()
+        apiGeneration += 1
+        apiServer?.stop()
         activeAnimations.values.forEach { NSStatusBar.system.removeStatusItem($0.statusItem) }
     }
 
@@ -75,21 +81,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func reloadConfigurationAndAnimations() {
+        apiGeneration += 1
+        apiServer?.stop()
+        apiServer = nil
         clearRuntimeState()
         do {
             let configuration = try AppConfiguration.load()
+            activityTimeout = configuration.activityTimeout
             let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
             let animations = SpriteAnimation.loadAll(in: directory)
             guard let selected = animations[configuration.defaultAnimation] else {
                 throw AnimationError.invalidFilename(configuration.defaultAnimation)
             }
             mainFrames = selected.frames
+            try startAPIServer()
         } catch {
-            NSLog("Unable to load configuration or default animation: %@", error.localizedDescription)
+            NSLog("Unable to load configuration or start local API: %@", error.localizedDescription)
             mainFrames = Self.builtInGhostFrames()
         }
         mainFrameIndex = 0
         updateMainStatusItem()
+    }
+
+    private func startAPIServer() throws {
+        let generation = apiGeneration
+        apiServer = LocalAPIServer(
+            onStart: { [weak self] filename in
+                try DispatchQueue.main.sync {
+                    guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
+                    return self.startActivity(animation: filename).uuidString
+                }
+            },
+            onKeepalive: { [weak self] activityID in
+                try DispatchQueue.main.sync {
+                    guard let self, self.apiGeneration == generation,
+                          let id = UUID(uuidString: activityID), self.keepaliveActivity(id) else {
+                        throw LocalAPIError.unknownActivity
+                    }
+                }
+            },
+            onStop: { [weak self] activityID in
+                try DispatchQueue.main.sync {
+                    guard let self, self.apiGeneration == generation,
+                          let id = UUID(uuidString: activityID), self.activities[id] != nil else {
+                        throw LocalAPIError.unknownActivity
+                    }
+                    self.stopActivity(id)
+                }
+            }
+        )
+        try apiServer?.start()
     }
 
     private func clearRuntimeState() {
@@ -98,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         activeAnimations.removeAll()
         activities.removeAll()
+        activityDeadlines.removeAll()
         disconnectedCount = 0
         warningFrames = []
         warningFrameIndex = 0
@@ -109,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func startActivity(animation filename: String) -> UUID {
         let id = UUID()
         activities[id] = filename
+        scheduleActivityExpiration(id)
         if let active = activeAnimations[filename] {
             active.activityIDs.insert(id)
             updateActivityStatus(active)
@@ -129,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func stopActivity(_ id: UUID) {
         guard let filename = activities.removeValue(forKey: id),
               let active = activeAnimations[filename] else { return }
+        activityDeadlines.removeValue(forKey: id)
         active.activityIDs.remove(id)
         if active.activityIDs.isEmpty {
             NSStatusBar.system.removeStatusItem(active.statusItem)
@@ -158,6 +202,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.image?.isTemplate = false
         button.title = active.activityIDs.count > 1 ? "\(active.activityIDs.count)" : ""
         button.image?.accessibilityDescription = "Active Nyathing animation"
+    }
+
+    private func keepaliveActivity(_ id: UUID) -> Bool {
+        guard activities[id] != nil else { return false }
+        scheduleActivityExpiration(id)
+        return true
+    }
+
+    private func scheduleActivityExpiration(_ id: UUID) {
+        let deadline = DispatchTime.now() + activityTimeout
+        let deadlineUptime = deadline.uptimeNanoseconds
+        activityDeadlines[id] = deadlineUptime
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: deadline) { [weak self] in
+            DispatchQueue.main.async {
+                self?.expireActivity(id, deadlineUptime: deadlineUptime)
+            }
+        }
+    }
+
+    private func expireActivity(_ id: UUID, deadlineUptime: UInt64) {
+        guard activityDeadlines[id] == deadlineUptime else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now >= deadlineUptime else {
+            let remaining = Double(deadlineUptime - now) / 1_000_000_000
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + remaining) { [weak self] in
+                DispatchQueue.main.async {
+                    self?.expireActivity(id, deadlineUptime: deadlineUptime)
+                }
+            }
+            return
+        }
+        stopActivity(id)
+        recordActivityTimeout()
     }
 
     private func advanceAnimations() {
