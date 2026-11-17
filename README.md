@@ -2,7 +2,7 @@
 
 A native macOS menu bar animation player, built with Swift and AppKit.
 
-## Step 2: Configuration and animation manual check
+## Step 3: Menu and runtime-state manual check
 
 Build and launch from the repository root:
 
@@ -11,21 +11,28 @@ swift build
 swift run nyathing
 ```
 
-On first launch, Nyathing creates a fully populated configuration at
-`$XDG_CONFIG_HOME/nyathing/config.toml`, or `~/.config/nyathing/config.toml`
-when `XDG_CONFIG_HOME` is unset, and seeds its sibling `animations/` directory
-with the built-in `ghost_36x36.png` sprite sheet. The app reads the four
-settings shown in that file; duration values must be positive, and
-`default_animation` must name a valid PNG in `animations/`.
+Open the main Nyathing menu and verify it provides About, Quit, Reset Disconnected
+Count, Reload Configuration and Animations, and Open Configuration. Confirm Open
+Configuration opens `config.toml`. Reset clears any visible warning count.
 
-Confirm the ghost animates in the menu bar at 10 frames per second and Nyathing
-does not appear in the Dock. To check validation, stop the app, make a copy of
-the valid PNG, then rename the copy with an unsupported size such as
-`bad_40x40.png` or alter the configured default filename to a missing file.
-Relaunch and inspect the terminal for the validation error; the app remains
-runnable and displays its built-in ghost fallback. Restore the configuration
-and asset, then relaunch to verify normal sprite playback. Stop the app with
-Control-C and confirm the menu bar icon disappears.
+The app currently has no client API or activity generator: those arrive in
+step 4. Consequently, active-animation aggregation and timeout warning/explosion
+states cannot yet be triggered through the app. Once the API is implemented,
+use it to start two distinct animations and multiple activities for one animation;
+verify separate status items and an overlaid count for the shared item. Let an
+activity time out and verify the warning icon/count and explosion animation.
+Also verify warning-only behavior when `explosion_36x36.png` is missing or
+invalid, that the count remains after the effect ends, and that reset clears it.
+Status-item placement is managed by macOS and visibility may be limited when the
+menu bar is crowded.
+
+To check reload behavior, start the app and edit the configuration or animation
+files, then choose Reload Configuration and Animations. Confirm the app remains
+running, reloads the configured default animation, and clears active animations
+and warning count. Quit and relaunch to verify normal startup. The configuration
+is created at `$XDG_CONFIG_HOME/nyathing/config.toml`, or
+`~/.config/nyathing/config.toml` when `XDG_CONFIG_HOME` is unset; its sibling
+`animations/` directory is seeded with `ghost_36x36.png`.
 
 Configuration template:
 

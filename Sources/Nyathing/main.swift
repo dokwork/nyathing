@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
@@ -8,40 +9,186 @@ application.delegate = delegate
 application.run()
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem?
+    private var mainStatusItem: NSStatusItem?
     private var animationTimer: Timer?
-    private var frames: [NSImage] = []
-    private var frameIndex = 0
+    private var mainFrames: [NSImage] = []
+    private var mainFrameIndex = 0
+    private var activeAnimations: [String: ActiveAnimation] = [:]
+    private var activities: [UUID: String] = [:]
+    private var disconnectedCount = 0
+    private var warningFrames: [NSImage] = []
+    private var warningFrameIndex = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem = item
-        do {
-            let configuration = try AppConfiguration.load()
-            let animationDirectory = AppConfiguration.configurationDirectory
-                .appendingPathComponent("animations", isDirectory: true)
-            let animations = SpriteAnimation.loadAll(in: animationDirectory)
-            guard let selected = animations[configuration.defaultAnimation] else {
-                throw AnimationError.invalidFilename(configuration.defaultAnimation)
-            }
-            frames = selected.frames
-        } catch {
-            NSLog("Unable to load configuration or default animation: %@", error.localizedDescription)
-            frames = Self.builtInGhostFrames()
-        }
-        showCurrentFrame()
+        mainStatusItem = item
+        configureMenu(for: item)
+        reloadConfigurationAndAnimations()
         animationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, !self.frames.isEmpty else { return }
-            self.frameIndex = (self.frameIndex + 1) % self.frames.count
-            self.showCurrentFrame()
+            self?.advanceAnimations()
         }
     }
 
-    private func showCurrentFrame() {
-        guard !frames.isEmpty, let button = statusItem?.button else { return }
-        button.image = frames[frameIndex]
+    func applicationWillTerminate(_ notification: Notification) {
+        animationTimer?.invalidate()
+        activeAnimations.values.forEach { NSStatusBar.system.removeStatusItem($0.statusItem) }
+    }
+
+    private func configureMenu(for item: NSStatusItem) {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "About Nyathing", action: #selector(showAbout), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Reset Disconnected Count", action: #selector(resetDisconnectedCount), keyEquivalent: "")
+        menu.addItem(withTitle: "Reload Configuration and Animations", action: #selector(reloadFromMenu), keyEquivalent: "")
+        menu.addItem(withTitle: "Open Configuration", action: #selector(openConfiguration), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit Nyathing", action: #selector(quit), keyEquivalent: "q")
+        for menuItem in menu.items { menuItem.target = self }
+        item.menu = menu
+    }
+
+    @objc private func showAbout() {
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "Nyathing"])
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
+    }
+
+    @objc private func resetDisconnectedCount() {
+        disconnectedCount = 0
+        warningFrames = []
+        warningFrameIndex = 0
+        updateMainStatusItem()
+    }
+
+    @objc private func reloadFromMenu() {
+        reloadConfigurationAndAnimations()
+    }
+
+    @objc private func openConfiguration() {
+        let url = AppConfiguration.configurationDirectory.appendingPathComponent("config.toml")
+        guard NSWorkspace.shared.open(url) else {
+            NSLog("Unable to open configuration at %@", url.path)
+            return
+        }
+    }
+
+    private func reloadConfigurationAndAnimations() {
+        clearRuntimeState()
+        do {
+            let configuration = try AppConfiguration.load()
+            let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
+            let animations = SpriteAnimation.loadAll(in: directory)
+            guard let selected = animations[configuration.defaultAnimation] else {
+                throw AnimationError.invalidFilename(configuration.defaultAnimation)
+            }
+            mainFrames = selected.frames
+        } catch {
+            NSLog("Unable to load configuration or default animation: %@", error.localizedDescription)
+            mainFrames = Self.builtInGhostFrames()
+        }
+        mainFrameIndex = 0
+        updateMainStatusItem()
+    }
+
+    private func clearRuntimeState() {
+        for active in activeAnimations.values {
+            NSStatusBar.system.removeStatusItem(active.statusItem)
+        }
+        activeAnimations.removeAll()
+        activities.removeAll()
+        disconnectedCount = 0
+        warningFrames = []
+        warningFrameIndex = 0
+        mainFrameIndex = 0
+    }
+
+    /// Begins an activity for a named animation, sharing its status item with matching activities.
+    @discardableResult
+    func startActivity(animation filename: String) -> UUID {
+        let id = UUID()
+        activities[id] = filename
+        if let active = activeAnimations[filename] {
+            active.activityIDs.insert(id)
+            updateActivityStatus(active)
+            return id
+        }
+
+        let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
+        let animation = SpriteAnimation.loadAll(in: directory)[filename]
+        let frames = animation?.frames ?? Self.builtInGhostFrames()
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let active = ActiveAnimation(statusItem: statusItem, frames: frames, activityIDs: [id])
+        activeAnimations[filename] = active
+        updateActivityStatus(active)
+        return id
+    }
+
+    /// Ends an activity without counting it as a disconnect.
+    func stopActivity(_ id: UUID) {
+        guard let filename = activities.removeValue(forKey: id),
+              let active = activeAnimations[filename] else { return }
+        active.activityIDs.remove(id)
+        if active.activityIDs.isEmpty {
+            NSStatusBar.system.removeStatusItem(active.statusItem)
+            activeAnimations.removeValue(forKey: filename)
+        } else {
+            updateActivityStatus(active)
+        }
+    }
+
+    /// Records a timed-out activity and displays its explosion effect when available.
+    func recordActivityTimeout() {
+        disconnectedCount += 1
+        let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
+        if let explosion = SpriteAnimation.loadAll(in: directory)["explosion_36x36.png"] {
+            warningFrames = explosion.frames
+            warningFrameIndex = 0
+        } else {
+            warningFrames = []
+            NSLog("Explosion animation explosion_36x36.png is missing or invalid")
+        }
+        updateMainStatusItem()
+    }
+
+    private func updateActivityStatus(_ active: ActiveAnimation) {
+        guard let button = active.statusItem.button, !active.frames.isEmpty else { return }
+        button.image = active.frames[active.frameIndex]
         button.image?.isTemplate = false
-        button.image?.accessibilityDescription = "Nyathing animation"
+        button.title = active.activityIDs.count > 1 ? "\(active.activityIDs.count)" : ""
+        button.image?.accessibilityDescription = "Active Nyathing animation"
+    }
+
+    private func advanceAnimations() {
+        if !mainFrames.isEmpty { mainFrameIndex = (mainFrameIndex + 1) % mainFrames.count }
+        for active in activeAnimations.values {
+            active.frameIndex = (active.frameIndex + 1) % active.frames.count
+            updateActivityStatus(active)
+        }
+        if !warningFrames.isEmpty {
+            warningFrameIndex += 1
+            if warningFrameIndex >= warningFrames.count {
+                warningFrames = []
+                warningFrameIndex = 0
+            }
+        }
+        updateMainStatusItem()
+    }
+
+    private func updateMainStatusItem() {
+        guard let button = mainStatusItem?.button else { return }
+        if disconnectedCount > 0 {
+            button.image = warningFrames.isEmpty
+                ? NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Disconnected clients")
+                : warningFrames[warningFrameIndex]
+            button.title = "\(disconnectedCount)"
+        } else {
+            button.image = mainFrames.isEmpty ? nil : mainFrames[mainFrameIndex]
+            button.title = ""
+        }
+        button.image?.isTemplate = false
+        button.image?.accessibilityDescription = disconnectedCount > 0 ? "Disconnected clients" : "Nyathing animation"
     }
 
     private static func builtInGhostFrames() -> [NSImage] {
@@ -57,5 +204,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             image.unlockFocus()
             return image
         }
+    }
+}
+
+private final class ActiveAnimation {
+    let statusItem: NSStatusItem
+    let frames: [NSImage]
+    var frameIndex = 0
+    var activityIDs: Set<UUID>
+
+    init(statusItem: NSStatusItem, frames: [NSImage], activityIDs: Set<UUID>) {
+        self.statusItem = statusItem
+        self.frames = frames
+        self.activityIDs = activityIDs
     }
 }
