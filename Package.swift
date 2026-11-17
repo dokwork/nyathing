@@ -8,6 +8,6 @@ let package = Package(
         .executable(name: "nyathing", targets: ["Nyathing"])
     ],
     targets: [
-        .executableTarget(name: "Nyathing")
+        .executableTarget(name: "Nyathing", resources: [.process("Resources")])
     ]
 )
