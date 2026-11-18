@@ -14,14 +14,15 @@ if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; th
 fi
 
 APP_NAME="Nyathing.app"
-APP_DIR="$ROOT/.build/package/$APP_NAME"
+APP_DIR="$ROOT/.build/dmg/$APP_NAME"
 CONTENTS="$APP_DIR/Contents"
 RESOURCES="$CONTENTS/Resources"
+STAGE="$ROOT/.build/dmg-staging"
 DIST="$ROOT/dist"
 
 swift build -c release
-rm -rf "$APP_DIR" "$DIST"
-mkdir -p "$CONTENTS/MacOS" "$RESOURCES" "$DIST"
+rm -rf "$APP_DIR" "$STAGE" "$DIST"
+mkdir -p "$CONTENTS/MacOS" "$RESOURCES" "$STAGE" "$DIST"
 cp .build/release/nyathing "$CONTENTS/MacOS/nyathing"
 cp -R .build/release/Nyathing_Nyathing.bundle "$RESOURCES/"
 cat > "$CONTENTS/Info.plist" <<PLIST
@@ -53,11 +54,13 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-pkgbuild \
-  --component "$APP_DIR" \
-  --install-location /Applications \
-  --identifier com.nyathing.pkg \
-  --version "$VERSION" \
-  "$DIST/nyathing-$VERSION.pkg"
+cp -R "$APP_DIR" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create \
+  -volname "Nyathing" \
+  -srcfolder "$STAGE" \
+  -ov \
+  -format UDZO \
+  "$DIST/nyathing-$VERSION.dmg"
 
-echo "Created $DIST/nyathing-$VERSION.pkg"
+echo "Created $DIST/nyathing-$VERSION.dmg"

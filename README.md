@@ -11,10 +11,10 @@ task is done.
 
 ## Install
 
-Download `nyathing-X.Y.Z.pkg` from the repository's **Releases** page. Open the
-downloaded package and follow the Installer prompts to install `Nyathing.app` in
-`/Applications`. Packages are unsigned and not notarized; macOS may require you
-to approve opening them.
+Download `nyathing-X.Y.Z.dmg` from the repository's **Releases** page and open
+it. Drag `Nyathing.app` onto the **Applications** folder shortcut in the window.
+The app is unsigned and not notarized; macOS may require you to approve opening
+it.
 
 ## Build and run
 
