@@ -1,14 +1,38 @@
 import AppKit
 import Foundation
 
-let application = NSApplication.shared
-application.setActivationPolicy(.accessory)
+let arguments = Array(CommandLine.arguments.dropFirst())
+if arguments == ["--server"] {
+  runNyathingApplication(serverMode: true)
+  exit(EXIT_SUCCESS)
+}
+if arguments.isEmpty {
+  if Bundle.main.bundleURL.pathExtension == "app" {
+    runNyathingApplication(serverMode: false)
+  } else {
+    exit(NyathingCLI.run(["--help"]))
+  }
+} else {
+  exit(NyathingCLI.run(arguments))
+}
 
-let delegate = AppDelegate()
-application.delegate = delegate
-application.run()
+private func runNyathingApplication(serverMode: Bool) {
+  let application = NSApplication.shared
+  application.setActivationPolicy(.accessory)
+
+  let delegate = AppDelegate(serverMode: serverMode)
+  application.delegate = delegate
+  application.run()
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  private let serverMode: Bool
+
+  init(serverMode: Bool = false) {
+    self.serverMode = serverMode
+    super.init()
+  }
+
   private var mainStatusItem: NSStatusItem?
   private var animationTimer: Timer?
   private lazy var staticAppIcon: NSImage? = {
@@ -31,10 +55,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     mainStatusItem = item
     configureMenu(for: item)
-    reloadConfigurationAndAnimations()
+    if serverMode {
+      startDedicatedServer()
+    } else {
+      reloadConfigurationAndAnimations()
+    }
     animationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
       self?.advanceAnimations()
     }
+  }
+
+  private func startDedicatedServer() {
+    // Keep the AppKit event loop alive for API callbacks and animation updates.
+    reloadConfigurationAndAnimations()
   }
 
   func applicationWillTerminate(_ notification: Notification) {

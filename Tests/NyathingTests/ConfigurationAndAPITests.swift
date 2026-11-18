@@ -4,6 +4,90 @@ import XCTest
 
 @testable import Nyathing
 
+final class CLITests: XCTestCase {
+  func testParsesAnimationOptionsAndPreservesChildArguments() throws {
+    let long = try XCTUnwrap(
+      CLIArguments.parse(["--animation", "nyan image.png", "./run me", "a b"]))
+    XCTAssertEqual(long.animation, "nyan image.png")
+    XCTAssertEqual(long.command, "./run me")
+    XCTAssertEqual(long.arguments, ["a b"])
+
+    let short = try XCTUnwrap(CLIArguments.parse(["-a", "matrix.png", "echo", "hello"]))
+    XCTAssertEqual(short.animation, "matrix.png")
+    XCTAssertEqual(short.command, "echo")
+    XCTAssertEqual(short.arguments, ["hello"])
+
+    let dashedCommand = try XCTUnwrap(
+      CLIArguments.parse(["-a", "matrix.png", "-tool", "--child-option"]))
+    XCTAssertEqual(dashedCommand.command, "-tool")
+    XCTAssertEqual(dashedCommand.arguments, ["--child-option"])
+  }
+
+  func testRejectsMissingCommandOrAnimationValue() {
+    XCTAssertThrowsError(try CLIArguments.parse([]))
+    XCTAssertThrowsError(try CLIArguments.parse(["-a", "animation.png"]))
+    XCTAssertThrowsError(try CLIArguments.parse(["--animation"]))
+    XCTAssertThrowsError(try CLIArguments.parse(["--animation", "", "echo"]))
+  }
+
+  func testPathsWithSpacesRemainSingleCommandAndAnimationValues() throws {
+    let parsed = try XCTUnwrap(
+      CLIArguments.parse(["--animation", "my animations/nyan cat.png", "./some folder/run me"]))
+    XCTAssertEqual(parsed.animation, "my animations/nyan cat.png")
+    XCTAssertEqual(parsed.command, "./some folder/run me")
+    XCTAssertTrue(parsed.arguments.isEmpty)
+  }
+
+  func testRejectsUnavailableRequestedAnimation() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("NyathingAnimation-\\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    _ = try AppConfiguration.load(in: directory)
+    let animationsDirectory = directory.appendingPathComponent("animations", isDirectory: true)
+
+    XCTAssertNoThrow(try NyathingCLI.validateAnimation("nyan_54x36.png", in: animationsDirectory))
+    XCTAssertThrowsError(
+      try NyathingCLI.validateAnimation("missing_36x36.png", in: animationsDirectory))
+    XCTAssertThrowsError(
+      try NyathingCLI.validateAnimation("../nyan_54x36.png", in: animationsDirectory))
+  }
+
+  func testKeepaliveIntervalPrecedesConfiguredActivityTimeout() {
+    let configuration = AppConfiguration(
+      keepaliveInterval: 5, activityTimeout: 0.8, autoStart: false,
+      defaultAnimation: "nyathing_36x36.png")
+    XCTAssertEqual(NyathingCLI.keepaliveInterval(for: configuration), 0.4, accuracy: 0.0001)
+
+    let shorterConfiguredInterval = AppConfiguration(
+      keepaliveInterval: 0.2, activityTimeout: 3, autoStart: false,
+      defaultAnimation: "nyathing_36x36.png")
+    XCTAssertEqual(NyathingCLI.keepaliveInterval(for: shorterConfiguredInterval), 0.2)
+  }
+
+  func testHelpAndVersionAreOnlyAvailableAsOptions() throws {
+    XCTAssertEqual(try CLIArguments.parse(["help"]).command, "help")
+    XCTAssertEqual(try CLIArguments.parse(["version"]).command, "version")
+    XCTAssertThrowsError(try CLIArguments.parse([]))
+  }
+
+  func testBareRelativeExecutableResolvesFromCurrentDirectory() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("NyathingCLI-\\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let previousDirectory = FileManager.default.currentDirectoryPath
+    XCTAssertEqual(chdir(directory.path), 0)
+    defer { _ = chdir(previousDirectory) }
+
+    let name = "run-me-\\(UUID().uuidString)"
+    let executable = directory.appendingPathComponent(name)
+    try Data("#!/bin/sh\\nexit 0\\n".utf8).write(to: executable)
+    XCTAssertEqual(chmod(executable.path, 0o755), 0)
+
+    XCTAssertEqual(try NyathingCLI.resolveExecutable(name), executable.path)
+  }
+}
+
 final class ConfigurationTests: XCTestCase {
   private var temporaryDirectory: URL!
 
