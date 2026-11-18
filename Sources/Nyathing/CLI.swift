@@ -38,7 +38,8 @@ struct CLIArguments {
   let command: String
   let arguments: [String]
 
-  static let usage = "Usage: nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]\n       nyathing help | --help\n       nyathing version | --version"
+  static let usage =
+    "Usage: nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]\n       nyathing help | --help\n       nyathing version | --version"
 
   static func parse(_ arguments: [String]) throws -> CLIArguments? {
     if arguments == ["help"] || arguments == ["--help"] { return nil }
@@ -51,7 +52,8 @@ struct CLIArguments {
       values.removeFirst(2)
     }
     guard let command = values.first else { throw CLIError.usage }
-    return CLIArguments(animation: animation, command: command, arguments: Array(values.dropFirst()))
+    return CLIArguments(
+      animation: animation, command: command, arguments: Array(values.dropFirst()))
   }
 }
 
@@ -73,13 +75,17 @@ enum CLIError: LocalizedError {
 
 enum NyathingCLI {
   static func run(_ arguments: [String]) -> Int32 {
+    if arguments == ["uninstall"] {
+      return NyathingUninstaller.run()
+    }
     if arguments == ["help"] || arguments == ["--help"] {
       print(CLIArguments.usage)
       return 0
     }
     if arguments == ["version"] || arguments == ["--version"] {
-      print(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        ?? "Development build")
+      print(
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+          ?? "Development build")
       return 0
     }
     do {
@@ -137,8 +143,7 @@ enum NyathingCLI {
     let keepalive = DispatchSource.makeTimerSource(queue: .global())
     keepalive.schedule(deadline: .now() + keepaliveInterval, repeating: keepaliveInterval)
     keepalive.setEventHandler {
-      do { _ = try client.command(["command": "keepalive", "activity_id": activityID]) }
-      catch {
+      do { _ = try client.command(["command": "keepalive", "activity_id": activityID]) } catch {
         keepaliveFailure.record(error.localizedDescription)
         if child.isRunning { _ = kill(child.processIdentifier, SIGTERM) }
       }
@@ -168,9 +173,14 @@ enum NyathingCLI {
 
   static func resolveExecutable(_ command: String) throws -> String {
     if command.contains("/") {
-      let path = URL(fileURLWithPath: command, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)).standardizedFileURL.path
+      let path = URL(
+        fileURLWithPath: command,
+        relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+      ).standardizedFileURL.path
       guard FileManager.default.isExecutableFile(atPath: path) else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT), userInfo: [NSLocalizedDescriptionKey: "Command not found or not executable: \(command)"])
+        throw NSError(
+          domain: NSPOSIXErrorDomain, code: Int(ENOENT),
+          userInfo: [NSLocalizedDescriptionKey: "Command not found or not executable: \(command)"])
       }
       return path
     }
@@ -179,12 +189,16 @@ enum NyathingCLI {
     if FileManager.default.isExecutableFile(atPath: currentDirectoryPath) {
       return currentDirectoryPath
     }
-    let paths = ProcessInfo.processInfo.environment["PATH", default: "/usr/bin:/bin:/usr/sbin:/sbin"].split(separator: ":")
+    let paths = ProcessInfo.processInfo.environment[
+      "PATH", default: "/usr/bin:/bin:/usr/sbin:/sbin"
+    ].split(separator: ":")
     for directory in paths {
       let path = URL(fileURLWithPath: String(directory)).appendingPathComponent(command).path
       if FileManager.default.isExecutableFile(atPath: path) { return path }
     }
-    throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT), userInfo: [NSLocalizedDescriptionKey: "Command not found: \(command)"])
+    throw NSError(
+      domain: NSPOSIXErrorDomain, code: Int(ENOENT),
+      userInfo: [NSLocalizedDescriptionKey: "Command not found: \(command)"])
   }
 }
 
@@ -218,7 +232,10 @@ private final class LocalAPIClient {
     var address = sockaddr_un()
     address.sun_family = sa_family_t(AF_UNIX)
     let capacity = MemoryLayout.size(ofValue: address.sun_path)
-    guard path.utf8.count < capacity else { Darwin.close(fd); throw LocalAPIError.socketPathTooLong }
+    guard path.utf8.count < capacity else {
+      Darwin.close(fd)
+      throw LocalAPIError.socketPathTooLong
+    }
     _ = withUnsafeMutablePointer(to: &address.sun_path) { pointer in
       pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { strlcpy($0, path, capacity) }
     }
@@ -227,7 +244,11 @@ private final class LocalAPIClient {
         Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
       }
     }
-    guard result == 0 else { let error = posixError(); Darwin.close(fd); throw error }
+    guard result == 0 else {
+      let error = posixError()
+      Darwin.close(fd)
+      throw error
+    }
     var noSignal: Int32 = 1
     _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
     return LocalAPIClient(descriptor: fd)
@@ -241,8 +262,12 @@ private final class LocalAPIClient {
     try data.withUnsafeBytes { raw in
       var offset = 0
       while offset < raw.count {
-        let count = Darwin.send(descriptor, raw.baseAddress!.advanced(by: offset), raw.count - offset, 0)
-        if count < 0 { if errno == EINTR { continue }; throw Self.posixError() }
+        let count = Darwin.send(
+          descriptor, raw.baseAddress!.advanced(by: offset), raw.count - offset, 0)
+        if count < 0 {
+          if errno == EINTR { continue }
+          throw Self.posixError()
+        }
         offset += count
       }
     }
@@ -262,6 +287,8 @@ private final class LocalAPIClient {
   }
 
   private static func posixError() -> NSError {
-    NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(errno))])
+    NSError(
+      domain: NSPOSIXErrorDomain, code: Int(errno),
+      userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(errno))])
   }
 }

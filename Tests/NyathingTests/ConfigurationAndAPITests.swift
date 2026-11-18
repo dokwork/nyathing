@@ -6,7 +6,8 @@ import XCTest
 
 final class CLITests: XCTestCase {
   func testParsesAnimationOptionsAndPreservesChildArguments() throws {
-    let long = try XCTUnwrap(CLIArguments.parse(["--animation", "nyan image.png", "./run me", "a b"]))
+    let long = try XCTUnwrap(
+      CLIArguments.parse(["--animation", "nyan image.png", "./run me", "a b"]))
     XCTAssertEqual(long.animation, "nyan image.png")
     XCTAssertEqual(long.command, "./run me")
     XCTAssertEqual(long.arguments, ["a b"])
@@ -16,7 +17,8 @@ final class CLITests: XCTestCase {
     XCTAssertEqual(short.command, "echo")
     XCTAssertEqual(short.arguments, ["hello"])
 
-    let dashedCommand = try XCTUnwrap(CLIArguments.parse(["-a", "matrix.png", "-tool", "--child-option"]))
+    let dashedCommand = try XCTUnwrap(
+      CLIArguments.parse(["-a", "matrix.png", "-tool", "--child-option"]))
     XCTAssertEqual(dashedCommand.command, "-tool")
     XCTAssertEqual(dashedCommand.arguments, ["--child-option"])
   }
@@ -75,6 +77,25 @@ final class CLITests: XCTestCase {
     XCTAssertEqual(chmod(executable.path, 0o755), 0)
 
     XCTAssertEqual(try NyathingCLI.resolveExecutable(name), executable.path)
+  }
+}
+
+final class UninstallTests: XCTestCase {
+  func testConfirmationDefaultsToNoAndAcceptsYesOrNo() throws {
+    XCTAssertFalse(try NyathingUninstaller.parseConfirmation(""))
+    XCTAssertFalse(try NyathingUninstaller.parseConfirmation(" N "))
+    XCTAssertFalse(try NyathingUninstaller.parseConfirmation("no"))
+    XCTAssertTrue(try NyathingUninstaller.parseConfirmation(" Y "))
+    XCTAssertTrue(try NyathingUninstaller.parseConfirmation("yes"))
+    XCTAssertThrowsError(try NyathingUninstaller.parseConfirmation("maybe"))
+  }
+
+  func testDeferredHelperWaitsForBundleProcessesAndReportsFailure() {
+    let helper = NyathingUninstaller.deferredRemovalHelperContents
+    XCTAssertTrue(helper.contains("while /bin/kill -0 \"$parent_pid\""))
+    XCTAssertTrue(helper.contains("/usr/sbin/lsof -t \"$bundle_executable\""))
+    XCTAssertTrue(helper.contains("Nyathing uninstall failed"))
+    XCTAssertTrue(helper.contains("trap '/bin/rm -f -- \"$helper_path\"' EXIT"))
   }
 }
 
