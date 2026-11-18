@@ -28,7 +28,7 @@ install:
 	swift build -c release
 	mkdir -p "$(INSTALL_DIR)/Nyathing.app/Contents/MacOS" "$(INSTALL_DIR)/Nyathing.app/Contents/Resources"
 	cp .build/release/nyathing "$(INSTALL_DIR)/Nyathing.app/Contents/MacOS/nyathing"
-	rm -rf "$(INSTALL_DIR)/Nyathing.app/Contents/Resources/Nyathing_Nyathing.bundle"
+	rm -rf "$(INSTALL_DIR)/Nyathing.app/Contents/Resources/Nyathing_Nyathing.bundle" "$(INSTALL_DIR)/Nyathing.app/Nyathing_Nyathing.bundle"
 	cp -R .build/release/Nyathing_Nyathing.bundle "$(INSTALL_DIR)/Nyathing.app/Contents/Resources/"
 	swift Scripts/make-app-icon.swift assets/nyathing.png .build/Nyathing.iconset
 	iconutil -c icns .build/Nyathing.iconset -o "$(INSTALL_DIR)/Nyathing.app/Contents/Resources/Nyathing.icns"

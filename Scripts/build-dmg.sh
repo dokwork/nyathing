@@ -59,6 +59,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
+codesign --force --deep --sign - "$APP_DIR"
+codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+
 cp -R "$APP_DIR" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create \
