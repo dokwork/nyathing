@@ -9,9 +9,6 @@ Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
 task is done.
 
-The application consists of `Nyathing.app`, which runs the menu-bar server, and
-a `nyathing` command-line symlink to the app's executable.
-
 ## Install
 
 Download the installer package from the repository's **Releases** page. Open
@@ -20,7 +17,7 @@ the package and follow the Installer prompts to install `Nyathing.app` in
 command symlink and requests administrator authorization to make these
 system-wide changes.
 
-To remove the installed app and command, run:
+To remove the installed app and command, run in terminal:
 
 ```sh
 nyathing uninstall
@@ -35,7 +32,7 @@ If the built-in uninstall does not complete, run `make uninstall` from the
 repository root. This force-removal fallback requires administrator
 authorization and removes the app, CLI command, configuration, and logs.
 
-**Note**
+**👮🏻‍♂️ Note**
 
 The app and package are **unsigned** and not notarized, so macOS may block the
 app because it was downloaded from the internet. If macOS blocks it, try opening
@@ -52,50 +49,7 @@ to enter your password or confirm with Touch ID.
 Alternatively, build and run `Nyathing` locally using the instructions in
 [Build from source](#build-from-source); locally built apps are not quarantined.
 
-## Build from source
-
-Requires macOS 12+ and Swift 5.9 or later. Run the commands below from the
-repository root.
-
-### Run the server
-
-Build and launch the menu-bar server:
-
-```sh
-swift build
-swift run nyathing --server
-```
-
-### Run the CLI
-
-The CLI runs a command while displaying an activity animation. For example:
-
-```sh
-swift run nyathing sleep 5
-```
-
-### Build and package
-
-Build and test with:
-
-```sh
-swift build
-swift test
-```
-
-To build the installer package, run:
-
-```sh
-make package
-```
-
-The package is written to `out/Nyathing-X.Y.Z.pkg`, with `X.Y.Z` set to the
-package version. For release builds, run this from a version tag such as
-`v1.2.3`, or provide `VERSION=1.2.3`. Developer builds do
-not install the app; use the release package for end-user installation and
-`nyathing uninstall` for end-user removal.
-
-## Protocol
+## Nyathing server
 
 Nyathing exposes a local API over a Unix domain stream socket. The socket path is
 `$XDG_RUNTIME_DIR/nyathing.sock` when `XDG_RUNTIME_DIR` is set; otherwise it is
@@ -126,6 +80,31 @@ activity expires after `activity_timeout_seconds` without one. Expiration
 increments the disconnected-client count and plays `explosion_36x36.png` when
 available. Explicitly stopping an activity does not count as a disconnect.
 Use **Reset Disconnected Count** in the menu to clear the count.
+
+## Run terminal commands with Nyathing
+
+Run a command with `nyathing` to display an animation while it runs. Nyathing
+starts the activity, keeps it alive while the command runs, then stops it.
+
+For example, show an animation while waiting five seconds, with or without a
+custom animation:
+
+```sh
+  nyathing sleep 5
+  nyathing --animation nyan_54x36.png sleep 5
+```
+
+`--animation` (or `-a`) selects an animation from Nyathing's user animation
+directory. Without it, the CLI uses `nyathing_36x36.png`, regardless of the
+configured server default. Quote paths containing spaces as usual in your shell.
+Relative command paths are resolved from the current working directory.
+
+To view available options or check the installed version:
+
+```sh
+  nyathing --help
+  nyathing --version
+```
 
 ## Animation file format
 
@@ -218,23 +197,43 @@ If the socket path is already in use, quit the existing instance before
 launching another. Invalid animation files are reported in the log; correct
 them and reload.
 
-## CLI usage
+## Build from source
 
-The CLI is a simple example of a client using Nyathing's server: it starts an
-activity, keeps it alive while a command runs, then stops it. For example, show
-an animation while waiting five seconds:
+Requires macOS 12+ and Swift 5.9 or later. Run the commands below from the
+repository root.
+
+### Run the server
+
+Build and launch the menu-bar server:
 
 ```sh
-nyathing sleep 5
-nyathing --animation nyan_54x36.png sleep 5
-nyathing -a nyan_54x36.png sleep 5
-nyathing --help
-nyathing --version
+swift build
+swift run nyathing --server
 ```
 
-`--animation` (or `-a`) selects an animation from Nyathing's user animation
-directory. Without it, the CLI uses `nyathing_36x36.png`, regardless of the
-configured server default. Quote paths containing spaces as usual in your shell.
-Relative command paths are resolved from the current working directory.
-Nyathing inherits the command's standard input and output streams, waits for it
-to finish, and returns its exit status.
+### Run the CLI
+
+The CLI runs a command while displaying an activity animation. For example:
+
+```sh
+swift run nyathing sleep 5
+```
+
+### Install from source
+
+Install the menu-bar app in `/Applications`:
+
+```sh
+make install-app
+```
+
+To run Nyathing from a terminal, also create the CLI symlink in
+`/usr/local/bin`:
+
+```sh
+make install-cli-link
+```
+
+The CLI symlink requires the app to be installed first. Each command asks
+before replacing an existing app or symlink and requires administrator
+authorization to install its files.
