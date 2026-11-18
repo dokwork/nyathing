@@ -13,7 +13,7 @@ struct AppConfiguration {
     keepalive_interval_seconds = 5
     # Seconds without a keepalive before an activity expires; must be greater than zero.
     activity_timeout_seconds = 5
-    # Whether to prepare a user LaunchAgent plist for manual installation.
+    # Whether Nyathing should launch automatically when you log in.
     auto_start = false
     # Animation filename in the sibling animations directory.
     default_animation = \"ghost_36x36.png\"
@@ -105,10 +105,16 @@ struct AppConfiguration {
         try FileManager.default.createDirectory(at: animationsDirectory, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: configURL.path) {
             try template.write(to: configURL, atomically: true, encoding: .utf8)
-            let sample = animationsDirectory.appendingPathComponent("ghost_36x36.png")
-            if !FileManager.default.fileExists(atPath: sample.path),
-               let bundled = Bundle.module.url(forResource: "ghost_36x36", withExtension: "png") {
-                try FileManager.default.copyItem(at: bundled, to: sample)
+        }
+        if let bundledResources = Bundle.module.resourceURL {
+            let bundledAnimations = try FileManager.default.contentsOfDirectory(
+                at: bundledResources, includingPropertiesForKeys: nil)
+            for bundled in bundledAnimations where bundled.pathExtension.lowercased() == "png" {
+                guard (try? SpriteAnimation.load(from: bundled)) != nil else { continue }
+                let destination = animationsDirectory.appendingPathComponent(bundled.lastPathComponent)
+                if !FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.copyItem(at: bundled, to: destination)
+                }
             }
         }
         let text = try String(contentsOf: configURL, encoding: .utf8)
@@ -141,10 +147,14 @@ struct AppConfiguration {
               let name = decodeTOMLString(rawName), !name.isEmpty,
               !name.contains("/"), !name.contains("\\"), name != ".", name != "..",
               !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
-            throw ConfigError.invalidValue("default_animation must be a filename string")
+            throw ConfigError.invalidValue("default_animation")
         }
         let animationURL = animationsDirectory.appendingPathComponent(name)
-        _ = try SpriteAnimation.load(from: animationURL)
+        do {
+            _ = try SpriteAnimation.load(from: animationURL)
+        } catch {
+            throw ConfigError.invalidAnimation(name, error.localizedDescription)
+        }
         return AppConfiguration(keepaliveInterval: try number("keepalive_interval_seconds"),
                                 activityTimeout: try number("activity_timeout_seconds"),
                                 autoStart: rawAuto == "true", defaultAnimation: name)
@@ -153,11 +163,28 @@ struct AppConfiguration {
 
 enum ConfigError: LocalizedError {
     case invalidLine(Int), invalidKey(String, Int), invalidValue(String)
+    case invalidAnimation(String, String)
+
     var errorDescription: String? {
         switch self {
-        case .invalidLine(let line): return "Invalid TOML configuration at line \(line)."
-        case .invalidKey(let key, let line): return "Unknown or duplicate setting '\(key)' at line \(line)."
-        case .invalidValue(let key): return "Missing or invalid setting: \(key)."
+        case .invalidLine(let line):
+            return "Invalid config.toml line \(line). Write each setting as key = value, or remove the line."
+        case .invalidKey(let key, let line):
+            return "Unknown or duplicate setting '\(key)' on line \(line). Use each supported setting once."
+        case .invalidValue(let key):
+            switch key {
+            case "keepalive_interval_seconds", "activity_timeout_seconds":
+                return "Missing or invalid '\(key)'. Add it to config.toml as a positive number of seconds."
+            case "auto_start":
+                return "Missing or invalid 'auto_start'. Add it to config.toml with the value true or false."
+            case "default_animation":
+                return "Missing or invalid 'default_animation'. Set it to a quoted animation filename in animations/."
+            default:
+                return "Missing or invalid setting: \(key). Check config.toml and correct its value."
+            }
+        case .invalidAnimation(let name, let reason):
+            return "The default animation '\(name)' is missing or invalid in animations/: \(reason) " +
+                "Add a valid sprite sheet there or choose another filename in config.toml."
         }
     }
 }

@@ -4,6 +4,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+if [[ -z "${VERSION:-}" ]]; then
+  VERSION="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
+  VERSION="${VERSION#v}"
+fi
+if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "Set VERSION to a SemVer value like 1.2.3, or build from a vX.Y.Z tag." >&2
+  exit 1
+fi
+
 APP_NAME="Nyathing.app"
 APP_DIR="$ROOT/.build/package/$APP_NAME"
 CONTENTS="$APP_DIR/Contents"
@@ -15,7 +24,7 @@ rm -rf "$APP_DIR" "$DIST"
 mkdir -p "$CONTENTS/MacOS" "$RESOURCES" "$DIST"
 cp .build/release/nyathing "$CONTENTS/MacOS/nyathing"
 cp -R .build/release/Nyathing_Nyathing.bundle "$RESOURCES/"
-cat > "$CONTENTS/Info.plist" <<'PLIST'
+cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -33,9 +42,9 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$VERSION</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>LSUIElement</key>
@@ -48,7 +57,7 @@ pkgbuild \
   --component "$APP_DIR" \
   --install-location /Applications \
   --identifier com.nyathing.pkg \
-  --version 1.0.0 \
-  "$DIST/Nyathing-1.0.0.pkg"
+  --version "$VERSION" \
+  "$DIST/nyathing-$VERSION.pkg"
 
-echo "Created $DIST/Nyathing-1.0.0.pkg"
+echo "Created $DIST/nyathing-$VERSION.pkg"

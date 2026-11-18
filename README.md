@@ -1,12 +1,26 @@
 # Nyathing
 
-Nyathing is a native macOS menu bar animation player for macOS 12 and later. It
-plays horizontal PNG sprite sheets and exposes a local Unix-socket API so other
-programs can control animations independently of their own lifecycle.
+![nyathing.png](assets/nyathing.png)
 
-## Build and run
+Nyathing brings background processes to life with playful animations in the
+macOS menu bar. Clients start an animation when work begins and stop it when the
+task is done.
 
-Requires macOS 12+ and Swift 5.9 or later. From the repository root:
+## Install
+
+Download `nyathing-X.Y.Z.pkg` from the repository's **Releases** page. Releases
+are published only for manually pushed `vX.Y.Z` tags that point to commits on
+`main`. Open the downloaded package and follow the Installer prompts to install
+`Nyathing.app` in `/Applications`. Packages are unsigned and not notarized;
+macOS may require you to approve opening them.
+
+## Build from source
+
+Requires macOS 12+ and Swift 5.9 or later.
+
+### Build and run
+
+From the repository root:
 
 ```sh
 swift build
@@ -17,26 +31,55 @@ Run the automated tests with `swift test`. The app is an accessory/menu bar app;
 launch it in a logged-in desktop session. Quit it from its menu or terminate its
 process from a terminal.
 
-## Install
+## Protocol
 
-Build the unsigned installer package with:
+Nyathing exposes a local API over a Unix domain stream socket. The socket path is
+`$XDG_RUNTIME_DIR/nyathing.sock` when `XDG_RUNTIME_DIR` is set; otherwise it is
+`$TMPDIR/nyathing-<uid>.sock` (usually `/tmp`). The socket is restricted to the
+current user, and the server checks the connecting process's user ID.
 
-```sh
-Scripts/build-pkg.sh
-```
+Exchange UTF-8 JSON Lines: send one JSON object followed by a newline (`\n`);
+Nyathing returns one JSON object followed by a newline for each request. A
+connection can carry multiple request/response pairs, and multiple clients may
+connect at the same time. Request lines are limited to 1 MiB.
 
-The script builds a release `.app` bundle and creates
-`dist/Nyathing-1.0.0.pkg`. Open the package and follow the Installer prompts to
-install `Nyathing.app` in `/Applications`. Launch it from Finder. The installer
-is currently unsigned and not notarized; macOS may require the user to approve
-opening it. Signing and notarization are not included in this build process.
+Commands:
 
-Future download: [Nyathing package releases](https://github.com/OWNER/REPOSITORY/releases)
+- Start an activity: `{"command":"start","animation":"nyan_54x36.png"}`
+  returns `{"ok":true,"activity_id":"…"}`. The animation is identified by
+  its filename. If it is unavailable or invalid, Nyathing uses the built-in
+  ghost animation.
+- Refresh a running activity: `{"command":"keepalive","activity_id":"…"}`
+  returns `{"ok":true}` and resets its expiration timer.
+- End an activity: `{"command":"stop","activity_id":"…"}` returns
+  `{"ok":true}` and does not count as a disconnect.
 
-## Configuration and animations
+Errors return `{"ok":false,"error":"…"}`. This includes malformed requests,
+unknown commands, and unknown activity IDs. Send keepalives periodically; the
+activity expires after `activity_timeout_seconds` without one. Expiration
+increments the disconnected-client count and plays `explosion_36x36.png` when
+available. Explicitly stopping an activity does not count as a disconnect.
+Use **Reset Disconnected Count** in the menu to clear the count.
 
-On first launch, Nyathing creates its configuration directory and seeds a
-sample ghost animation:
+## Animation file format
+
+Animation files are single horizontal PNG sprite sheets. Supported frame sizes
+are 36x36 and 54x36 pixels; image height must equal the frame height and image
+width must be a positive multiple of it. Name files with the frame size suffix,
+for example `nyan_54x36.png`. The app validates assets on startup and reload;
+invalid assets are ignored and logged. Playback runs at 10 frames per second.
+
+## Configuration
+
+On first launch, Nyathing creates its configuration directory and adds these
+built-in animations:
+
+- Ghost (`ghost_36x36.png`)
+- Nyan Cat (`nyan_54x36.png`)
+- Matrix (`matrix_36x36.png`)
+
+Missing bundled animations are also added on later launches without overwriting
+your files.
 
 - Configuration: `$XDG_CONFIG_HOME/nyathing/config.toml`, or
   `~/.config/nyathing/config.toml` when `XDG_CONFIG_HOME` is unset.
@@ -49,50 +92,23 @@ The complete initial configuration is:
 keepalive_interval_seconds = 5
 # Seconds without a keepalive before an activity expires; must be greater than zero.
 activity_timeout_seconds = 5
-# Whether to prepare a user LaunchAgent plist for manual installation.
+# Whether to launch Nyathing automatically when you log in.
 auto_start = false
 # Animation filename in the sibling animations directory.
 default_animation = "ghost_36x36.png"
 ```
 
-All settings are required. Durations are numeric seconds and must be positive.
-`default_animation` must name a valid animation file in `animations/`.
-
-Animation files are single horizontal PNG sprite sheets. Supported frame sizes
-are 36x36 and 54x36 pixels; image height must equal the frame height and image
-width must be a positive multiple of it. Name files with the frame size suffix,
-for example `nyan_54x36.png`. The app validates assets on startup and reload;
-invalid assets are ignored and logged. Playback runs at 10 frames per second.
+Keep all four settings in your `config.toml`; Nyathing does not fill in omitted
+settings. You can change their values, but both durations must remain positive
+numbers, and `default_animation` must name a valid file in `animations/`.
+To use Nyan Cat, set it to `nyan_54x36.png`; to use Matrix, set it to
+`matrix_36x36.png`.
 
 Use **Reload Configuration and Animations** in the menu after changing
 configuration or animation files. Reload clears active client activities and
 the disconnected-client count.
 
-## Local client API
-
-The API uses a current-user Unix domain socket and newline-delimited JSON (one
-JSON object and one response per line). The socket path is
-`$XDG_RUNTIME_DIR/nyathing.sock` when `XDG_RUNTIME_DIR` is set, otherwise
-`$TMPDIR/nyathing-<uid>.sock`. Requests support multiple commands per connection
-and multiple simultaneous connections. Socket permissions and peer credentials
-restrict access to the current user.
-
-Commands:
-
-- `{"command":"start","animation":"nyan_54x36.png"}` starts an activity and
-  returns `{"ok":true,"activity_id":"…"}`. An unavailable animation uses the
-  built-in ghost animation.
-- `{"command":"keepalive","activity_id":"…"}` refreshes an activity.
-- `{"command":"stop","activity_id":"…"}` ends it explicitly.
-
-Keepalive and stop success responses are `{"ok":true}`. Invalid requests and
-unknown activity IDs return `{"ok":false,"error":"…"}`. Clients should send
-keepalives at `keepalive_interval_seconds`; an activity expires after
-`activity_timeout_seconds` without one. Expiration increments the main menu-bar
-warning count and plays `explosion_36x36.png` when available. Explicit stop does
-not increment the count. The menu can reset the count.
-
-A minimal Python example:
+## Minimal Python client example
 
 ```python
 import json
@@ -115,35 +131,24 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
     command({"command": "stop", "activity_id": activity})
 ```
 
-## Optional login launch
+## Launch at login
 
-Set `auto_start = true` and launch Nyathing. It prepares
-`com.nyathing.Nyathing.plist` beside the configuration; it does not install or
-manage the LaunchAgent. Install and load it manually:
+Set `auto_start = true` in `config.toml`, then choose **Reload Configuration and
+Animations** from Nyathing's menu. Nyathing installs its own LaunchAgent in
+`~/Library/LaunchAgents`; it will start automatically at your next login. No
+manual `launchctl` commands are needed.
 
-```sh
-mkdir -p ~/Library/LaunchAgents
-cp "${XDG_CONFIG_HOME:-$HOME/.config}/nyathing/com.nyathing.Nyathing.plist" \
-  ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
-launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
-```
-
-To unload and remove the manually installed agent:
-
-```sh
-launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
-rm ~/Library/LaunchAgents/com.nyathing.Nyathing.plist
-```
-
-The plist uses the app executable's current path. If Nyathing is moved,
-regenerate the plist by launching it again with `auto_start = true`.
+Set `auto_start = false` and reload to remove the LaunchAgent. If you move
+`Nyathing.app`, enable auto-start again and reload so the LaunchAgent records
+the app's new location.
 
 ## Troubleshooting
 
 Startup and runtime diagnostics are written to
 `$XDG_STATE_HOME/nyathing/nyathing.log`, or
 `~/.local/state/nyathing/nyathing.log` when `XDG_STATE_HOME` is unset. Startup
-errors show an alert with an **Open Full Log** button. If the socket path is
-already in use, quit the existing instance before launching another. Invalid
-configuration or animation files are reported in the log; correct them and
-reload.
+errors show an alert with an **Open Log** button. Configuration errors also
+offer **Open Configuration**; animation errors offer **Open Animations Folder**.
+If the socket path is already in use, quit the existing instance before
+launching another. Invalid animation files are reported in the log; correct
+them and reload.

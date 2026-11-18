@@ -87,13 +87,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clearRuntimeState()
         do {
             let configuration = try AppConfiguration.load()
-            if configuration.autoStart {
-                do {
-                    try LaunchAgentSupport.prepare(in: AppConfiguration.configurationDirectory)
-                    NyathingLog.write("Prepared user LaunchAgent plist at \(AppConfiguration.configurationDirectory.appendingPathComponent("com.nyathing.Nyathing.plist").path)")
-                } catch {
-                    NyathingLog.report(error, context: "Unable to prepare LaunchAgent plist")
+            do {
+                try LaunchAgentSupport.configure(enabled: configuration.autoStart,
+                                                 in: AppConfiguration.configurationDirectory)
+                if configuration.autoStart {
+                    NyathingLog.write("Configured Nyathing to launch at the next login")
                 }
+            } catch {
+                NyathingLog.report(error, context: "Unable to configure login launch")
             }
             activityTimeout = configuration.activityTimeout
             let directory = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
@@ -104,7 +105,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mainFrames = selected.frames
             try startAPIServer()
         } catch {
-            NyathingLog.report(error, context: "Unable to load configuration or start local API")
+            let configurationURL = AppConfiguration.configurationDirectory.appendingPathComponent("config.toml")
+            let animationsURL = AppConfiguration.configurationDirectory.appendingPathComponent("animations", isDirectory: true)
+            let recoveryActions: [NyathingLog.RecoveryAction]
+            if let configError = error as? ConfigError {
+                if case .invalidAnimation = configError {
+                    recoveryActions = [.init(title: "Open Animations Folder", url: animationsURL)]
+                } else {
+                    recoveryActions = [.init(title: "Open Configuration", url: configurationURL)]
+                }
+            } else if error is AnimationError {
+                recoveryActions = [.init(title: "Open Animations Folder", url: animationsURL)]
+            } else {
+                recoveryActions = []
+            }
+            NyathingLog.report(error, context: "Unable to load configuration or start local API",
+                               recoveryActions: recoveryActions)
             mainFrames = Self.builtInGhostFrames()
         }
         mainFrameIndex = 0

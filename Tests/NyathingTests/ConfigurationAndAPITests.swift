@@ -21,6 +21,22 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryDirectory.appendingPathComponent("config.toml").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryDirectory
             .appendingPathComponent("animations/ghost_36x36.png").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryDirectory
+            .appendingPathComponent("animations/nyan_54x36.png").path))
+        let nyan = try SpriteAnimation.load(from: temporaryDirectory
+            .appendingPathComponent("animations/nyan_54x36.png"))
+        XCTAssertEqual(nyan.frameSize, NSSize(width: 54, height: 36))
+        XCTAssertEqual(nyan.frames.count, 8)
+        let matrixURL = temporaryDirectory.appendingPathComponent("animations/matrix_36x36.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: matrixURL.path))
+        let matrix = try SpriteAnimation.load(from: matrixURL)
+        XCTAssertEqual(matrix.frameSize, NSSize(width: 36, height: 36))
+        XCTAssertEqual(matrix.frames.count, 16)
+        let explosionURL = temporaryDirectory.appendingPathComponent("animations/explosion_36x36.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: explosionURL.path))
+        let explosion = try SpriteAnimation.load(from: explosionURL)
+        XCTAssertEqual(explosion.frameSize, NSSize(width: 36, height: 36))
+        XCTAssertEqual(explosion.frames.count, 16)
     }
 
     func testLoadsCompleteConfigurationAndValidatedDefaultAnimation() throws {
@@ -63,7 +79,8 @@ final class ConfigurationTests: XCTestCase {
     }
 
     func testRejectsMissingOrInvalidDefaultAnimation() throws {
-        try writeConfiguration(AppConfiguration.template)
+        try writeConfiguration(AppConfiguration.template.replacingOccurrences(
+            of: "ghost_36x36.png", with: "missing_36x36.png"))
         XCTAssertThrowsError(try AppConfiguration.load(in: temporaryDirectory))
     }
 

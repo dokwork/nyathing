@@ -42,18 +42,30 @@ enum NyathingLog {
         }
     }
 
-    static func report(_ error: Error, context: String) {
+    struct RecoveryAction {
+        let title: String
+        let url: URL
+    }
+
+    static func report(_ error: Error, context: String, recoveryActions: [RecoveryAction] = []) {
         let message = "\(context): \(error.localizedDescription)"
         write(message)
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.alertStyle = .critical
             alert.messageText = context
-            alert.informativeText = "\(error.localizedDescription)\n\nFull log: \(fileURL.path)"
-            alert.addButton(withTitle: "Open Full Log")
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "Open Log")
+            for action in recoveryActions {
+                alert.addButton(withTitle: action.title)
+            }
             alert.addButton(withTitle: "OK")
-            if alert.runModal() == .alertFirstButtonReturn {
+
+            let response = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            if response == 0 {
                 NSWorkspace.shared.open(fileURL)
+            } else if response > 0 && response <= recoveryActions.count {
+                NSWorkspace.shared.open(recoveryActions[response - 1].url)
             }
         }
     }
@@ -62,18 +74,33 @@ enum NyathingLog {
 enum LaunchAgentSupport {
     static let label = "com.nyathing.Nyathing"
 
-    /// Writes a user-installable LaunchAgent plist beside the configuration when auto-start is enabled.
-    static func prepare(in directory: URL) throws {
-        guard let executable = Bundle.main.executableURL?.path else {
-            throw LaunchAgentError.executableUnavailable
+    /// Installs or removes the user's login agent according to the auto-start setting.
+    static func configure(enabled: Bool, in configurationDirectory: URL) throws {
+        let launchAgentsDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+        let agentURL = launchAgentsDirectory.appendingPathComponent("\(label).plist")
+        let legacyURL = configurationDirectory.appendingPathComponent("\(label).plist")
+
+        if enabled {
+            guard let executable = Bundle.main.executableURL?.path else {
+                throw LaunchAgentError.executableUnavailable
+            }
+            let plist: [String: Any] = [
+                "Label": label,
+                "ProgramArguments": [executable],
+                "RunAtLoad": true
+            ]
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try FileManager.default.createDirectory(at: launchAgentsDirectory,
+                                                    withIntermediateDirectories: true)
+            try data.write(to: agentURL, options: .atomic)
+        } else if FileManager.default.fileExists(atPath: agentURL.path) {
+            try FileManager.default.removeItem(at: agentURL)
         }
-        let plist: [String: Any] = [
-            "Label": label,
-            "ProgramArguments": [executable],
-            "RunAtLoad": true
-        ]
-        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-        try data.write(to: directory.appendingPathComponent("com.nyathing.Nyathing.plist"), options: .atomic)
+
+        if FileManager.default.fileExists(atPath: legacyURL.path) {
+            try FileManager.default.removeItem(at: legacyURL)
+        }
     }
 }
 
