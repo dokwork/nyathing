@@ -13,18 +13,48 @@ task is done.
 
 Download `nyathing-X.Y.Z.dmg` from the repository's **Releases** page and open
 it. Drag `Nyathing.app` onto the **Applications** folder shortcut in the window.
-The app is unsigned and not notarized; macOS may require you to approve opening
-it.
+The app is unsigned and not notarized, so macOS may block it because it was
+downloaded from the internet. To remove the quarantine flag, open Terminal and
+run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Nyathing.app
+```
+
+If you installed the app somewhere else, replace `/Applications/Nyathing.app`
+with its actual path. 
+
+Alternatively, build and run Nyathing locally using the instructions in [Build
+and install](#build-and-install); locally built apps are not quarantined.
 
 ## Build and run
 
-Requires macOS 12+ and Swift 5.9 or later.
-From the repository root:
+Requires macOS 12+ and Swift 5.9 or later. From the repository root:
 
 ```sh
 swift build
 swift run nyathing
 ```
+
+## Build and install
+
+Requires macOS 12+ and Swift 5.9 or later. From the repository root, build a
+release app and install it in `/Applications`:
+
+```sh
+make install
+```
+
+Use `INSTALL_DIR` to install elsewhere, for example `make install
+INSTALL_DIR="$HOME/Applications"`. You may need to authorize installation in
+`/Applications`. To remove the app and its login agent, run:
+
+```sh
+make uninstall
+```
+
+Pass the same `INSTALL_DIR` if you installed it in a non-default location.
+Uninstall removes the app, its login agent, configuration, animations, and logs.
 
 ## Protocol
 

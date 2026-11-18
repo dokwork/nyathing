@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var mainStatusItem: NSStatusItem?
   private var animationTimer: Timer?
   private lazy var staticAppIcon: NSImage? = {
-    guard let url = Bundle.module.url(forResource: "nyathing", withExtension: "png"),
+    guard let url = Bundle.module.url(forResource: "nyathing_icon", withExtension: "png"),
       let image = NSImage(contentsOf: url)
     else { return nil }
     image.size = NSSize(width: 22, height: 18)
