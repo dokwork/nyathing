@@ -38,12 +38,30 @@ struct CLIArguments {
   let command: String
   let arguments: [String]
 
-  static let usage =
-    "Usage: nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]\n       nyathing help | --help\n       nyathing version | --version"
+  static let usage = """
+    Nyathing displays playful animations in the macOS menu bar while commands run.
 
-  static func parse(_ arguments: [String]) throws -> CLIArguments? {
-    if arguments == ["help"] || arguments == ["--help"] { return nil }
-    if arguments == ["version"] || arguments == ["--version"] { return nil }
+    Usage:
+      nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]
+      nyathing uninstall
+      nyathing --help
+      nyathing --version
+
+    Commands:
+      COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
+      uninstall               Remove the installed app and CLI command.
+
+    Options:
+      -a, --animation FILE    Select an animation from the user animations folder.
+      --help                  Show this help.
+      --version               Show the app version.
+
+    Examples:
+      nyathing sleep 5
+      nyathing --animation nyan_54x36.png make test
+    """
+
+  static func parse(_ arguments: [String]) throws -> CLIArguments {
     var values = arguments
     var animation = "nyathing_36x36.png"
     if values.first == "--animation" || values.first == "-a" {
@@ -78,18 +96,18 @@ enum NyathingCLI {
     if arguments == ["uninstall"] {
       return NyathingUninstaller.run()
     }
-    if arguments == ["help"] || arguments == ["--help"] {
+    if arguments.isEmpty || arguments == ["--help"] {
       print(CLIArguments.usage)
       return 0
     }
-    if arguments == ["version"] || arguments == ["--version"] {
+    if arguments == ["--version"] {
       print(
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
           ?? "Development build")
       return 0
     }
     do {
-      guard let parsed = try CLIArguments.parse(arguments) else { return 0 }
+      let parsed = try CLIArguments.parse(arguments)
       return try execute(parsed)
     } catch {
       FileHandle.standardError.write(Data("nyathing: \(error.localizedDescription)\n".utf8))
@@ -215,7 +233,7 @@ private final class LocalAPIClient {
     if let connected = try? connect() { return connected }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
-    process.arguments = ["--nyathing-server"]
+    process.arguments = ["--server"]
     process.standardInput = FileHandle.nullDevice
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice

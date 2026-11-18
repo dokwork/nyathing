@@ -1,15 +1,20 @@
 import AppKit
 import Foundation
 
-let isServerMode = CommandLine.arguments.dropFirst().first == "--nyathing-server"
-if isServerMode {
+let arguments = Array(CommandLine.arguments.dropFirst())
+if arguments == ["--server"] {
   runNyathingApplication(serverMode: true)
   exit(EXIT_SUCCESS)
 }
-if CommandLine.arguments.count > 1 {
-  exit(NyathingCLI.run(Array(CommandLine.arguments.dropFirst())))
+if arguments.isEmpty {
+  if Bundle.main.bundleURL.pathExtension == "app" {
+    runNyathingApplication(serverMode: false)
+  } else {
+    exit(NyathingCLI.run(["--help"]))
+  }
+} else {
+  exit(NyathingCLI.run(arguments))
 }
-runNyathingApplication(serverMode: false)
 
 private func runNyathingApplication(serverMode: Bool) {
   let application = NSApplication.shared

@@ -64,11 +64,10 @@ final class CLITests: XCTestCase {
     XCTAssertEqual(NyathingCLI.keepaliveInterval(for: shorterConfiguredInterval), 0.2)
   }
 
-  func testHelpAndVersionParseAsCommandsAndOptions() throws {
-    XCTAssertNil(try CLIArguments.parse(["help"]))
-    XCTAssertNil(try CLIArguments.parse(["version"]))
-    XCTAssertNil(try CLIArguments.parse(["--help"]))
-    XCTAssertNil(try CLIArguments.parse(["--version"]))
+  func testHelpAndVersionAreOnlyAvailableAsOptions() throws {
+    XCTAssertEqual(try CLIArguments.parse(["help"]).command, "help")
+    XCTAssertEqual(try CLIArguments.parse(["version"]).command, "version")
+    XCTAssertThrowsError(try CLIArguments.parse([]))
   }
 
   func testBareRelativeExecutableResolvesFromCurrentDirectory() throws {

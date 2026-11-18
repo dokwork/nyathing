@@ -1,44 +1,16 @@
 import Darwin
 import Foundation
 
-/// Coordinates end-user removal while avoiding deletion of the running app executable.
+/// Coordinates synchronous end-user removal of the app and CLI command.
 enum NyathingUninstaller {
   static let appPath = "/Applications/Nyathing.app"
   static let symlinkPath = "/usr/local/bin/nyathing"
   static let prompt = "Remove Nyathing configuration and user animations? [y/N]"
-  static let deferredRemovalHelperContents = """
-    #!/bin/sh
-    parent_pid="$1"
-    symlink_path="$2"
-    app_path="$3"
-    helper_path="$4"
-    bundle_executable="$5"
-    trap '/bin/rm -f -- "$helper_path"' EXIT
-    while /bin/kill -0 "$parent_pid" 2>/dev/null; do /bin/sleep 1; done
-    removal_failed=0
-    while :; do
-      /usr/sbin/lsof -t "$bundle_executable" >/dev/null 2>&1
-      lsof_status=$?
-      if [ "$lsof_status" -eq 1 ]; then break; fi
-      if [ "$lsof_status" -ne 0 ]; then removal_failed=1; break; fi
-      /bin/sleep 1
-    done
-    if [ "$removal_failed" -eq 0 ]; then
-      /bin/rm -f -- "$symlink_path" || removal_failed=1
-      /bin/rm -rf -- "$app_path" || removal_failed=1
-    fi
-    if [ "$removal_failed" -ne 0 ]; then
-      /usr/bin/osascript -e 'display alert "Nyathing uninstall failed" message "Nyathing could not safely remove the app or CLI link. Remove /Applications/Nyathing.app and /usr/local/bin/nyathing manually."' >/dev/null 2>&1 || true
-    fi
-    """
-
   static func run() -> Int32 {
     do {
       let removeUserData = try confirmUserDataRemoval()
       try requestAuthorization(removeUserData: removeUserData)
-      print(
-        "Uninstall request accepted, not completed. Removal will wait for all Nyathing processes to exit; a macOS alert will report any failure."
-      )
+      FileHandle.standardError.write(Data("Nyathing was successfully uninstalled.\n".utf8))
       return 0
     } catch {
       FileHandle.standardError.write(
@@ -63,17 +35,36 @@ enum NyathingUninstaller {
 
   private static func requestAuthorization(removeUserData: Bool) throws {
     let pid = getpid()
-    var commands: [String] = []
+    let executablePath = appPath + "/Contents/MacOS/nyathing"
+    let removalCommand = """
+      attempts=0
+      while :; do
+        pids=$(/usr/sbin/lsof -t \(shellQuote(executablePath)) 2>/dev/null)
+        lsof_status=$?
+        if [ "$lsof_status" -gt 1 ]; then exit 1; fi
+        other_pids=
+        for process_pid in $pids; do
+          if [ "$process_pid" != "\(pid)" ]; then other_pids="$other_pids $process_pid"; fi
+        done
+        if [ -z "$other_pids" ]; then break; fi
+        if [ "$attempts" -lt 1 ]; then signal=TERM; else signal=KILL; fi
+        for process_pid in $other_pids; do
+          /bin/kill -"$signal" "$process_pid" 2>/dev/null || true
+        done
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 10 ]; then exit 1; fi
+        /bin/sleep 1
+      done
+      /bin/rm -f -- \(shellQuote(symlinkPath)) && /bin/rm -rf -- \(shellQuote(appPath)) &&
+      [ ! -e \(shellQuote(symlinkPath)) ] && [ ! -L \(shellQuote(symlinkPath)) ] &&
+      [ ! -e \(shellQuote(appPath)) ] && [ ! -L \(shellQuote(appPath)) ]
+      """
+    var commands = [removalCommand]
     if removeUserData {
       let configuration = AppConfiguration.configurationDirectory.path
       commands.append("/bin/rm -rf -- \(shellQuote(configuration + "/animations"))")
       commands.append("/bin/rm -rf -- \(shellQuote(configuration))")
     }
-    let helperContents = deferredRemovalHelperContents
-    let executablePath = appPath + "/Contents/MacOS/nyathing"
-    let helperCommand =
-      "helper=$(/usr/bin/mktemp /private/tmp/nyathing-uninstall.XXXXXX) && /usr/bin/printf %s \(shellQuote(helperContents)) > \"$helper\" && /bin/chmod 700 \"$helper\" && (/usr/bin/nohup /bin/sh \"$helper\" \(pid) \(shellQuote(symlinkPath)) \(shellQuote(appPath)) \"$helper\" \(shellQuote(executablePath)) >/dev/null 2>&1 </dev/null &)"
-    commands.append(helperCommand)
     let shellCommand = commands.joined(separator: " && ")
     let appleScript =
       "do shell script \"\(appleScriptQuote(shellCommand))\" with administrator privileges"
@@ -109,7 +100,6 @@ enum NyathingUninstaller {
 enum UninstallError: LocalizedError {
   case invalidConfirmation
   case authorization(String?)
-  case helperCreation(String)
 
   var errorDescription: String? {
     switch self {
@@ -118,8 +108,6 @@ enum UninstallError: LocalizedError {
     case .authorization(let details):
       return details.map { "Administrator authorization failed: \($0)" }
         ?? "Administrator authorization was canceled or failed."
-    case .helperCreation(let reason):
-      return "Unable to create the deferred removal helper: \(reason)"
     }
   }
 }

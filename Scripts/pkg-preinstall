@@ -2,7 +2,15 @@
 set -euo pipefail
 
 CLI_PATH="/usr/local/bin/nyathing"
-if [[ -e "$CLI_PATH" || -L "$CLI_PATH" ]]; then
-  echo "Cannot install Nyathing: $CLI_PATH already exists." >&2
+CLI_TARGET="/Applications/Nyathing.app/Contents/MacOS/nyathing"
+if [[ -L "$CLI_PATH" ]]; then
+  if [[ "$(/usr/bin/readlink "$CLI_PATH")" == "$CLI_TARGET" ]]; then
+    /bin/rm -f -- "$CLI_PATH"
+  else
+    echo "Cannot install Nyathing: $CLI_PATH is an unrelated symlink." >&2
+    exit 1
+  fi
+elif [[ -e "$CLI_PATH" ]]; then
+  echo "Cannot install Nyathing: $CLI_PATH already exists and is not a symlink." >&2
   exit 1
 fi

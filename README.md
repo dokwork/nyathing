@@ -29,8 +29,11 @@ nyathing uninstall
 Uninstall requests administrator authorization. It asks
 `Remove Nyathing configuration and user animations? [y/N]`; the default is no.
 Answering no preserves configuration and animations while still removing the
-app and CLI symlink. Removal waits until Nyathing has exited; a macOS alert
-reports if deferred removal fails.
+app and CLI symlink. The app is closed as part of removal.
+
+If the built-in uninstall does not complete, run `make uninstall` from the
+repository root. This force-removal fallback requires administrator
+authorization and removes the app, CLI command, configuration, and logs.
 
 **Note**
 
@@ -60,7 +63,7 @@ Build and launch the menu-bar server:
 
 ```sh
 swift build
-swift run nyathing
+swift run nyathing --server
 ```
 
 ### Run the CLI
@@ -86,8 +89,9 @@ To build the installer package, run:
 make package
 ```
 
-The package is written to `out/Nyathing.pkg`. For release builds, run this from
-a version tag such as `v1.2.3`, or provide `VERSION=1.2.3`. Developer builds do
+The package is written to `out/Nyathing-X.Y.Z.pkg`, with `X.Y.Z` set to the
+package version. For release builds, run this from a version tag such as
+`v1.2.3`, or provide `VERSION=1.2.3`. Developer builds do
 not install the app; use the release package for end-user installation and
 `nyathing uninstall` for end-user removal.
 

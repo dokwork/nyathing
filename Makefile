@@ -1,10 +1,10 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help format lint test package run
+.PHONY: help format lint test package run uninstall
 
 help:
-	@printf '%s\n' 'Targets:' '  format   Format Swift files in Sources/ and Tests/' '  lint     Check Swift formatting' '  test     Run the Swift test suite' '  package  Build the macOS installer package' '  run      Run animations for five seconds (ANIMATIONS="a b" optional)'
+	@printf '%s\n' 'Targets:' '  format   Format Swift files in Sources/ and Tests/' '  lint     Check Swift formatting' '  test     Run the Swift test suite' '  package   Build the macOS installer package' '  run       Run animations for five seconds (ANIMATIONS="a b" optional)' '  uninstall Force-remove the app, CLI command, and user data'
 
 format:
 	@find Sources Tests -type f -name '*.swift' -print0 | xargs -0 swift format format --in-place
@@ -17,6 +17,9 @@ test:
 
 package:
 	Scripts/build-pkg.sh
+
+uninstall:
+	bash Scripts/force-uninstall.sh
 
 run:
 	swift build
