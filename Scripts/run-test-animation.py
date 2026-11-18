@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a test animation through Nyathing's local API."""
+"""Run one or more test animations through Nyathing's local API."""
 
 import json
 import os
@@ -55,7 +55,7 @@ def configured_seconds(text, key, default):
 
 app = None
 started_here = False
-activity_id = None
+activity_ids = []
 try:
     if not api_is_ready():
         app = subprocess.Popen([".build/debug/nyathing"])
@@ -71,10 +71,16 @@ try:
             time.sleep(0.2)
 
     settings = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    animation = os.environ.get("ANIMATION") or configured_value(
-        settings, "default_animation", "ghost_36x36.png"
-    )
-    activity_id = request({"command": "start", "animation": animation})["activity_id"]
+    animations = os.environ.get("ANIMATIONS", "").replace(",", " ").split()
+    if not animations:
+        animation = os.environ.get("ANIMATION") or configured_value(
+            settings, "default_animation", "ghost_36x36.png"
+        )
+        animations = [animation]
+    for animation in animations:
+        activity_id = request({"command": "start", "animation": animation})["activity_id"]
+        activity_ids.append(activity_id)
+        print(f"Started {animation} ({activity_id})")
 
     interval = configured_seconds(settings, "keepalive_interval_seconds", 5.0)
     timeout = configured_seconds(settings, "activity_timeout_seconds", 5.0)
@@ -82,9 +88,10 @@ try:
     run_deadline = time.monotonic() + 5
     while time.monotonic() < run_deadline:
         time.sleep(min(keepalive_delay, run_deadline - time.monotonic()))
-        request({"command": "keepalive", "activity_id": activity_id})
+        for activity_id in activity_ids:
+            request({"command": "keepalive", "activity_id": activity_id})
 finally:
-    if activity_id is not None:
+    for activity_id in activity_ids:
         try:
             request({"command": "stop", "activity_id": activity_id})
         except Exception as error:

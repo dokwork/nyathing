@@ -1,6 +1,6 @@
 # Nyathing
 
-![nyathing.png](assets/nyathing.png)
+![nyathings.png](assets/nyathings.png)
 
 Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
@@ -8,28 +8,20 @@ task is done.
 
 ## Install
 
-Download `nyathing-X.Y.Z.pkg` from the repository's **Releases** page. Releases
-are published only for manually pushed `vX.Y.Z` tags that point to commits on
-`main`. Open the downloaded package and follow the Installer prompts to install
-`Nyathing.app` in `/Applications`. Packages are unsigned and not notarized;
-macOS may require you to approve opening them.
+Download `nyathing-X.Y.Z.pkg` from the repository's **Releases** page. Open the
+downloaded package and follow the Installer prompts to install `Nyathing.app` in
+`/Applications`. Packages are unsigned and not notarized; macOS may require you
+to approve opening them.
 
-## Build from source
+## Build and run
 
 Requires macOS 12+ and Swift 5.9 or later.
-
-### Build and run
-
 From the repository root:
 
 ```sh
 swift build
 swift run nyathing
 ```
-
-Run the automated tests with `swift test`. The app is an accessory/menu bar app;
-launch it in a logged-in desktop session. Quit it from its menu or terminate its
-process from a terminal.
 
 ## Protocol
 
