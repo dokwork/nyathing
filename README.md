@@ -11,11 +11,20 @@ task is done.
 
 ## Install
 
-Download `nyathing-X.Y.Z.dmg` from the repository's **Releases** page and open
-it. Drag `Nyathing.app` onto the **Applications** folder shortcut in the window.
-The app is **unsigned** and not notarized, so macOS may block it because it was
-downloaded from the internet. If macOS blocks the app, try opening it once,
-then allow it in **System Settings → Privacy & Security**:
+The **Releases** page currently provides a disk image (`nyathing-X.Y.Z.dmg`),
+not the installer package. Open the disk image and drag `Nyathing.app` to
+**Applications** to install the menu-bar app. This does not install the CLI
+symlink.
+
+To install the CLI, build the installer package from the repository as described
+in [Build and package](#build-and-package), then open `out/Nyathing.pkg`. The
+installer places `Nyathing.app` in `/Applications` and creates the
+`/usr/local/bin/nyathing` command symlink. It requests administrator
+authorization to make these system-wide changes.
+
+The app and package are **unsigned** and not notarized, so macOS may block the
+app because it was downloaded from the internet. If macOS blocks it, try opening
+the app once, then allow it in **System Settings → Privacy & Security**:
 
 1. Open **System Settings** and select **Privacy & Security**.
 2. Scroll to the **Security** section.
@@ -25,8 +34,40 @@ then allow it in **System Settings → Privacy & Security**:
 The **Open Anyway** option appears after you try to open the app. You may need
 to enter your password or confirm with Touch ID.
 
-Alternatively, build and run `Nyathing` locally using the instructions in 
-[Build and install](#build-and-install); locally built apps are not quarantined.
+Alternatively, build and run `Nyathing` locally using the instructions in
+[Build and run](#build-and-run); locally built apps are not quarantined.
+
+## CLI usage
+
+Use `nyathing` to run a command while its activity animation is displayed:
+
+```sh
+nyathing ./script.sh
+nyathing --animation nyan_54x36.png ./script.sh
+nyathing -a nyan_54x36.png ./script.sh
+nyathing './scripts/my task.sh'
+nyathing --help
+nyathing --version
+```
+
+`--animation` (or `-a`) selects an animation from Nyathing's user animation
+directory. Without it, the CLI uses `nyathing_36x36.png`, regardless of the
+configured server default. Quote paths containing spaces as usual in your shell.
+Relative command paths are resolved
+from the current working directory. Nyathing inherits the command's standard
+input and output streams, waits for it to finish, and returns its exit status.
+
+To remove the installed app and command, run:
+
+```sh
+nyathing uninstall
+```
+
+Uninstall requests administrator authorization. It asks
+`Remove Nyathing configuration and user animations? [y/N]`; the default is no.
+Answering no preserves configuration and animations while still removing the
+app and CLI symlink. Removal waits until Nyathing has exited; a macOS alert
+reports if deferred removal fails.
 
 ## Build and run
 
@@ -37,25 +78,26 @@ swift build
 swift run nyathing
 ```
 
-## Build and install
+## Build and package
 
-Requires macOS 12+ and Swift 5.9 or later. From the repository root, build a
-release app and install it in `/Applications`:
-
-```sh
-make install
-```
-
-Use `INSTALL_DIR` to install elsewhere, for example `make install
-INSTALL_DIR="$HOME/Applications"`. You may need to authorize installation in
-`/Applications`. To remove the app and its login agent, run:
+Requires macOS 12+ and Swift 5.9 or later. From the repository root, build and
+test with:
 
 ```sh
-make uninstall
+swift build
+swift test
 ```
 
-Pass the same `INSTALL_DIR` if you installed it in a non-default location.
-Uninstall removes the app, its login agent, configuration, animations, and logs.
+To build the installer package, run:
+
+```sh
+make package
+```
+
+The package is written to `out/Nyathing.pkg`. For release builds, run this from
+a version tag such as `v1.2.3`, or provide `VERSION=1.2.3`. Developer builds do
+not install the app; use the release package for end-user installation and
+`nyathing uninstall` for end-user removal.
 
 ## Protocol
 
