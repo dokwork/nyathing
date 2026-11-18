@@ -11,8 +11,13 @@ application.run()
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var mainStatusItem: NSStatusItem?
   private var animationTimer: Timer?
-  private var mainFrames: [NSImage] = []
-  private var mainFrameIndex = 0
+  private lazy var staticAppIcon: NSImage? = {
+    guard let url = Bundle.module.url(forResource: "nyathing", withExtension: "png"),
+      let image = NSImage(contentsOf: url)
+    else { return nil }
+    image.size = NSSize(width: 22, height: 18)
+    return image
+  }()
   private var activeAnimations: [String: ActiveAnimation] = [:]
   private var lifecycle = ActivityLifecycle()
   private var activityTimeout: TimeInterval = 5
@@ -133,37 +138,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
       activityTimeout = configuration.activityTimeout
-      let directory = AppConfiguration.configurationDirectory.appendingPathComponent(
-        "animations", isDirectory: true)
-      let animations = SpriteAnimation.loadAll(in: directory)
-      guard let selected = animations[configuration.defaultAnimation] else {
-        throw AnimationError.invalidFilename(configuration.defaultAnimation)
-      }
-      mainFrames = selected.frames
       try startAPIServer()
     } catch {
       let configurationURL = AppConfiguration.configurationDirectory.appendingPathComponent(
         "config.toml")
-      let animationsURL = AppConfiguration.configurationDirectory.appendingPathComponent(
-        "animations", isDirectory: true)
       let recoveryActions: [NyathingLog.RecoveryAction]
-      if let configError = error as? ConfigError {
-        if case .invalidAnimation = configError {
-          recoveryActions = [.init(title: "Open Animations Folder", url: animationsURL)]
-        } else {
-          recoveryActions = [.init(title: "Open Configuration", url: configurationURL)]
-        }
-      } else if error is AnimationError {
-        recoveryActions = [.init(title: "Open Animations Folder", url: animationsURL)]
+      if error is ConfigError {
+        recoveryActions = [.init(title: "Open Configuration", url: configurationURL)]
       } else {
         recoveryActions = []
       }
       NyathingLog.report(
         error, context: "Unable to load configuration or start local API",
         recoveryActions: recoveryActions)
-      mainFrames = Self.builtInGhostFrames()
     }
-    mainFrameIndex = 0
     updateMainStatusItem()
   }
 
@@ -204,10 +192,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       NSStatusBar.system.removeStatusItem(active.statusItem)
     }
     activeAnimations.removeAll()
+    updateMainStatusItemVisibility()
     lifecycle.reset()
     warningFrames = []
     warningFrameIndex = 0
-    mainFrameIndex = 0
   }
 
   /// Begins an activity for a named animation, sharing its status item with matching activities.
@@ -220,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if let active = activeAnimations[filename] {
       active.activityIDs.insert(id)
       updateActivityStatus(active)
+      updateMainStatusItemVisibility()
       return id
     }
 
@@ -236,6 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       filename: filename, statusItem: statusItem, frames: frames, activityIDs: [id])
     activeAnimations[filename] = active
     updateActivityStatus(active)
+    updateMainStatusItemVisibility()
     return id
   }
 
@@ -251,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if active.activityIDs.isEmpty {
       NSStatusBar.system.removeStatusItem(active.statusItem)
       activeAnimations.removeValue(forKey: filename)
+      updateMainStatusItemVisibility()
     } else {
       updateActivityStatus(active)
     }
@@ -272,14 +263,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func updateActivityStatus(_ active: ActiveAnimation) {
     guard let button = active.statusItem.button, !active.frames.isEmpty else { return }
-    button.image = active.frames[active.frameIndex]
-    button.image?.isTemplate = false
-    button.imagePosition = .imageRight
+    let frame = active.frames[active.frameIndex]
     let count = lifecycle.activityCount(for: active.filename)
-    button.title = count > 1 ? "\(count)" : ""
+    button.image = count > 1 ? Self.image(frame, withCountBadge: count) : frame
+    button.image?.isTemplate = false
+    button.title = ""
     button.toolTip = active.filename
-    active.statusItem.length = button.intrinsicContentSize.width
-    button.image?.accessibilityDescription = "Active Nyathing animation"
+    active.statusItem.length = frame.size.width
+    button.image?.accessibilityDescription =
+      count > 1 ? "Active Nyathing animation, \(count) activities" : "Active Nyathing animation"
+  }
+
+  private static func image(_ frame: NSImage, withCountBadge count: Int) -> NSImage {
+    let image = NSImage(size: frame.size)
+    image.lockFocus()
+    frame.draw(in: NSRect(origin: .zero, size: frame.size))
+
+    let text = "\(count)" as NSString
+    let attributes: [NSAttributedString.Key: Any] = [
+      .font: NSFont.boldSystemFont(ofSize: 9),
+      .foregroundColor: NSColor.white,
+    ]
+    let textSize = text.size(withAttributes: attributes)
+    let badgeWidth = max(14, textSize.width + 6)
+    let badge = NSRect(
+      x: frame.size.width - badgeWidth - 1,
+      y: 1,
+      width: badgeWidth,
+      height: 13)
+    let background = NSBezierPath(roundedRect: badge, xRadius: 6, yRadius: 6)
+    NSColor(calibratedWhite: 0.08, alpha: 0.95).setFill()
+    background.fill()
+    NSColor.white.setStroke()
+    background.lineWidth = 1
+    background.stroke()
+    text.draw(
+      at: NSPoint(x: badge.midX - textSize.width / 2, y: badge.midY - textSize.height / 2),
+      withAttributes: attributes)
+    image.unlockFocus()
+    return image
   }
 
   private func keepaliveActivity(_ id: UUID) -> Bool {
@@ -318,7 +340,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func advanceAnimations() {
-    if !mainFrames.isEmpty { mainFrameIndex = (mainFrameIndex + 1) % mainFrames.count }
     for active in activeAnimations.values {
       active.frameIndex = (active.frameIndex + 1) % active.frames.count
       updateActivityStatus(active)
@@ -333,6 +354,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     updateMainStatusItem()
   }
 
+  private func updateMainStatusItemVisibility() {
+    mainStatusItem?.isVisible = activeAnimations.isEmpty
+  }
+
   private func updateMainStatusItem() {
     guard let button = mainStatusItem?.button else { return }
     if lifecycle.disconnectedCount > 0 {
@@ -344,12 +369,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         : warningFrames[warningFrameIndex]
       button.title = "\(lifecycle.disconnectedCount)"
     } else {
-      button.image = mainFrames.isEmpty ? nil : mainFrames[mainFrameIndex]
+      button.image =
+        staticAppIcon
+        ?? NSImage(
+          systemSymbolName: "sparkles", accessibilityDescription: "Nyathing")
       button.title = ""
     }
     button.image?.isTemplate = false
     button.image?.accessibilityDescription =
-      lifecycle.disconnectedCount > 0 ? "Disconnected clients" : "Nyathing animation"
+      lifecycle.disconnectedCount > 0 ? "Disconnected clients" : "Nyathing"
   }
 
   private static func builtInGhostFrames() -> [NSImage] {

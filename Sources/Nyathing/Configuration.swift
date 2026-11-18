@@ -6,7 +6,6 @@ struct AppConfiguration {
   let keepaliveInterval: TimeInterval
   let activityTimeout: TimeInterval
   let autoStart: Bool
-  let defaultAnimation: String
 
   static let template = """
     # Seconds between client keepalive messages; must be greater than zero.
@@ -15,8 +14,6 @@ struct AppConfiguration {
     activity_timeout_seconds = 5
     # Whether Nyathing should launch automatically when you log in.
     auto_start = false
-    # Animation filename in the sibling animations directory.
-    default_animation = \"ghost_36x36.png\"
     """
 
   static var configurationDirectory: URL {
@@ -54,54 +51,11 @@ struct AppConfiguration {
     return String(line)
   }
 
-  private static func decodeTOMLString(_ raw: String) -> String? {
-    let characters = Array(raw)
-    guard characters.count >= 2,
-      (characters.first == "\"" && characters.last == "\"")
-        || (characters.first == "'" && characters.last == "'")
-    else { return nil }
-    let quote = characters[0]
-    let content = Array(characters.dropFirst().dropLast())
-    var result = ""
-    var index = 0
-    while index < content.count {
-      let character = content[index]
-      if character == quote { return nil }
-      if quote == "'" || character != "\\" {
-        result.append(character)
-        index += 1
-        continue
-      }
-      index += 1
-      guard index < content.count else { return nil }
-      let escape = content[index]
-      let replacements: [Character: Character] = [
-        "\"": "\"", "\\": "\\", "b": "\u{8}", "t": "\t", "n": "\n", "f": "\u{c}", "r": "\r",
-      ]
-      if let replacement = replacements[escape] {
-        result.append(replacement)
-        index += 1
-      } else if escape == "u" || escape == "U" {
-        let digits = escape == "u" ? 4 : 8
-        guard index + digits < content.count else { return nil }
-        let hex = String(content[(index + 1)...(index + digits)])
-        guard let value = UInt32(hex, radix: 16), let scalar = UnicodeScalar(value),
-          !(0xD800...0xDFFF).contains(value)
-        else { return nil }
-        result.unicodeScalars.append(scalar)
-        index += digits + 1
-      } else {
-        return nil
-      }
-    }
-    return result
-  }
-
   static func load() throws -> AppConfiguration {
     try load(in: configurationDirectory)
   }
 
-  /// Loads and validates configuration and its selected animation from a configuration directory.
+  /// Loads and validates configuration from a configuration directory.
   static func load(in directory: URL) throws -> AppConfiguration {
     let configURL = directory.appendingPathComponent("config.toml")
     let animationsDirectory = directory.appendingPathComponent("animations", isDirectory: true)
@@ -122,7 +76,33 @@ struct AppConfiguration {
         }
       }
     }
-    let text = try String(contentsOf: configURL, encoding: .utf8)
+    var text = try String(contentsOf: configURL, encoding: .utf8)
+    var removedObsoleteSettings = false
+    let obsoleteComments = [
+      "# Animate the app's icon instead of showing the static project logo.",
+      "# Animate the app's main icon instead of showing the static logo.",
+      "# Animation filename in the sibling animations directory.",
+    ]
+    let retainedLines = text.split(separator: "\n", omittingEmptySubsequences: false).compactMap {
+      rawLine -> String? in
+      let original = String(rawLine)
+      if obsoleteComments.contains(original.trimmingCharacters(in: .whitespaces)) {
+        removedObsoleteSettings = true
+        return nil
+      }
+      let line = stripComment(from: rawLine).trimmingCharacters(in: .whitespaces)
+      guard let equal = line.firstIndex(of: "=") else { return original }
+      let key = line[..<equal].trimmingCharacters(in: .whitespaces)
+      if key == "animate_icon" || key == "default_animation" {
+        removedObsoleteSettings = true
+        return nil
+      }
+      return original
+    }
+    if removedObsoleteSettings {
+      text = retainedLines.joined(separator: "\n")
+      try text.write(to: configURL, atomically: true, encoding: .utf8)
+    }
     var values: [String: String] = [:]
     for (offset, rawLine) in text.split(separator: "\n", omittingEmptySubsequences: false)
       .enumerated()
@@ -135,10 +115,7 @@ struct AppConfiguration {
       let key = line[..<equal].trimmingCharacters(in: .whitespaces)
       let value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
       guard
-        [
-          "keepalive_interval_seconds", "activity_timeout_seconds", "auto_start",
-          "default_animation",
-        ].contains(key),
+        ["keepalive_interval_seconds", "activity_timeout_seconds", "auto_start"].contains(key),
         values[key] == nil
       else { throw ConfigError.invalidKey(key, offset + 1) }
       values[key] = value
@@ -157,23 +134,10 @@ struct AppConfiguration {
     guard let rawAuto = values["auto_start"], rawAuto == "true" || rawAuto == "false" else {
       throw ConfigError.invalidValue("auto_start")
     }
-    guard let rawName = values["default_animation"],
-      let name = decodeTOMLString(rawName), !name.isEmpty,
-      !name.contains("/"), !name.contains("\\"), name != ".", name != "..",
-      !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
-    else {
-      throw ConfigError.invalidValue("default_animation")
-    }
-    let animationURL = animationsDirectory.appendingPathComponent(name)
-    do {
-      _ = try SpriteAnimation.load(from: animationURL)
-    } catch {
-      throw ConfigError.invalidAnimation(name, error.localizedDescription)
-    }
     return AppConfiguration(
       keepaliveInterval: try number("keepalive_interval_seconds"),
       activityTimeout: try number("activity_timeout_seconds"),
-      autoStart: rawAuto == "true", defaultAnimation: name)
+      autoStart: rawAuto == "true")
   }
 }
 
@@ -181,7 +145,6 @@ enum ConfigError: LocalizedError {
   case invalidLine(Int)
   case invalidKey(String, Int)
   case invalidValue(String)
-  case invalidAnimation(String, String)
 
   var errorDescription: String? {
     switch self {
@@ -197,16 +160,10 @@ enum ConfigError: LocalizedError {
         return "Missing or invalid '\(key)'. Add it to config.toml as a positive number of seconds."
       case "auto_start":
         return
-          "Missing or invalid 'auto_start'. Add it to config.toml with the value true or false."
-      case "default_animation":
-        return
-          "Missing or invalid 'default_animation'. Set it to a quoted animation filename in animations/."
+          "Missing or invalid '\(key)'. Add it to config.toml with the value true or false."
       default:
         return "Missing or invalid setting: \(key). Check config.toml and correct its value."
       }
-    case .invalidAnimation(let name, let reason):
-      return "The default animation '\(name)' is missing or invalid in animations/: \(reason) "
-        + "Add a valid sprite sheet there or choose another filename in config.toml."
     }
   }
 }

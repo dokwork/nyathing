@@ -1,6 +1,9 @@
 # Nyathing
 
+
 ![nyathings.png](assets/nyathings.png)
+[![CI](https://github.com/dokwork/nyathing/actions/workflows/ci.yml/badge.svg)](https://github.com/dokwork/nyathing/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/dokwork/nyathing)](https://github.com/dokwork/nyathing/releases/latest)
 
 Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
@@ -86,15 +89,13 @@ keepalive_interval_seconds = 5
 activity_timeout_seconds = 5
 # Whether to launch Nyathing automatically when you log in.
 auto_start = false
-# Animation filename in the sibling animations directory.
-default_animation = "ghost_36x36.png"
 ```
 
-Keep all four settings in your `config.toml`; Nyathing does not fill in omitted
-settings. You can change their values, but both durations must remain positive
-numbers, and `default_animation` must name a valid file in `animations/`.
-To use Nyan Cat, set it to `nyan_54x36.png`; to use Matrix, set it to
-`matrix_36x36.png`.
+Keep all three settings in your `config.toml`; Nyathing does not fill in omitted
+settings. Set `auto_start` to `true` or `false`; both durations must be positive
+numbers. Client animation requests still display their requested animations, and
+missing requests use the built-in ghost. Older configuration files have the
+obsolete icon-animation settings removed automatically.
 
 Use **Reload Configuration and Animations** in the menu after changing
 configuration or animation files. Reload clears active client activities and

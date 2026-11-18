@@ -19,7 +19,8 @@ final class ConfigurationTests: XCTestCase {
   }
 
   func testFirstLaunchSeedsConfigurationAndSampleAnimation() throws {
-    _ = try AppConfiguration.load(in: temporaryDirectory)
+    let configuration = try AppConfiguration.load(in: temporaryDirectory)
+    XCTAssertEqual(configuration.keepaliveInterval, 5)
     XCTAssertTrue(
       FileManager.default.fileExists(
         atPath: temporaryDirectory.appendingPathComponent("config.toml").path))
@@ -51,21 +52,22 @@ final class ConfigurationTests: XCTestCase {
     XCTAssertEqual(explosion.frames.count, 16)
   }
 
-  func testLoadsCompleteConfigurationAndValidatedDefaultAnimation() throws {
-    let animations = temporaryDirectory.appendingPathComponent("animations", isDirectory: true)
-    try FileManager.default.createDirectory(at: animations, withIntermediateDirectories: true)
-    try FileManager.default.copyItem(
-      at: Self.ghostFixture, to: animations.appendingPathComponent("ghost_36x36.png"))
-    try AppConfiguration.template.write(
-      to: temporaryDirectory.appendingPathComponent("config.toml"),
-      atomically: true, encoding: .utf8)
+  func testRemovesObsoleteIconSettingsFromExistingConfiguration() throws {
+    let oldTemplate = AppConfiguration.template.replacingOccurrences(
+      of: "auto_start = false",
+      with:
+        "auto_start = false\nanimate_icon = false\ndefault_animation = \"missing_36x36.png\"")
+    try writeConfiguration(oldTemplate)
 
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
 
     XCTAssertEqual(configuration.keepaliveInterval, 5)
     XCTAssertEqual(configuration.activityTimeout, 5)
     XCTAssertFalse(configuration.autoStart)
-    XCTAssertEqual(configuration.defaultAnimation, "ghost_36x36.png")
+    let savedConfig = try String(
+      contentsOf: temporaryDirectory.appendingPathComponent("config.toml"), encoding: .utf8)
+    XCTAssertFalse(savedConfig.contains("animate_icon"))
+    XCTAssertFalse(savedConfig.contains("default_animation"))
   }
 
   func testAnimationResolutionUsesAssetOrBuiltInGhost() throws {
@@ -92,13 +94,6 @@ final class ConfigurationTests: XCTestCase {
     try writeConfiguration(
       AppConfiguration.template.replacingOccurrences(
         of: "activity_timeout_seconds = 5", with: "activity_timeout_seconds = 0"))
-    XCTAssertThrowsError(try AppConfiguration.load(in: temporaryDirectory))
-  }
-
-  func testRejectsMissingOrInvalidDefaultAnimation() throws {
-    try writeConfiguration(
-      AppConfiguration.template.replacingOccurrences(
-        of: "ghost_36x36.png", with: "missing_36x36.png"))
     XCTAssertThrowsError(try AppConfiguration.load(in: temporaryDirectory))
   }
 
