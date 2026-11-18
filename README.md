@@ -1,7 +1,7 @@
 # Nyathing
 
 
-![nyathings.png](assets/nyathings.png)
+![nyathing-fancy.png](assets/nyathing-fancy.png)
 [![CI](https://github.com/dokwork/nyathing/actions/workflows/ci.yml/badge.svg)](https://github.com/dokwork/nyathing/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/dokwork/nyathing)](https://github.com/dokwork/nyathing/releases/latest)
 
