@@ -74,7 +74,7 @@ try:
     animations = os.environ.get("ANIMATIONS", "").replace(",", " ").split()
     if not animations:
         animation = os.environ.get("ANIMATION") or configured_value(
-            settings, "default_animation", "ghost_36x36.png"
+            settings, "default_animation", "nyathing_36x36.png"
         )
         animations = [animation]
     for animation in animations:

@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var activeAnimations: [String: ActiveAnimation] = [:]
   private var lifecycle = ActivityLifecycle()
   private var activityTimeout: TimeInterval = 5
+  private var defaultAnimation = "nyathing_36x36.png"
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
   private var warningFrames: [NSImage] = []
@@ -138,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
       activityTimeout = configuration.activityTimeout
+      defaultAnimation = configuration.defaultAnimation
       try startAPIServer()
     } catch {
       let configurationURL = AppConfiguration.configurationDirectory.appendingPathComponent(
@@ -158,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func startAPIServer() throws {
     let generation = apiGeneration
     apiServer = LocalAPIServer(
+      defaultAnimation: defaultAnimation,
       onStart: { [weak self] filename in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }

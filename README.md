@@ -42,7 +42,9 @@ Commands:
 
 - Start an activity: `{"command":"start","animation":"nyan_54x36.png"}`
   returns `{"ok":true,"activity_id":"…"}`. The animation is identified by
-  its filename. If it is unavailable or invalid, Nyathing uses the built-in
+  its filename. The `animation` field is optional; when omitted, Nyathing uses
+  the animation selected by `default_animation` in `config.toml`. If a
+  requested animation is unavailable or invalid, Nyathing uses the built-in
   ghost animation.
 - Refresh a running activity: `{"command":"keepalive","activity_id":"…"}`
   returns `{"ok":true}` and resets its expiration timer.
@@ -69,7 +71,7 @@ invalid assets are ignored and logged. Playback runs at 10 frames per second.
 On first launch, Nyathing creates its configuration directory and adds these
 built-in animations:
 
-- Ghost (`ghost_36x36.png`)
+- Nyathing (`nyathing_36x36.png`)
 - Nyan Cat (`nyan_54x36.png`)
 - Matrix (`matrix_36x36.png`)
 
@@ -89,13 +91,17 @@ keepalive_interval_seconds = 5
 activity_timeout_seconds = 5
 # Whether to launch Nyathing automatically when you log in.
 auto_start = false
+# Animation filename used when a client omits the animation field.
+default_animation = "nyathing_36x36.png"
 ```
 
-Keep all three settings in your `config.toml`; Nyathing does not fill in omitted
+Keep all four settings in your `config.toml`; Nyathing does not fill in omitted
 settings. Set `auto_start` to `true` or `false`; both durations must be positive
-numbers. Client animation requests still display their requested animations, and
-missing requests use the built-in ghost. Older configuration files have the
-obsolete icon-animation settings removed automatically.
+numbers. Set `default_animation` to the filename of a valid animation in the
+`animations/` directory. Requests with an explicit animation use it; missing or
+unavailable requested animations fall back to the built-in ghost. Older
+configuration files have the obsolete icon-animation setting removed
+automatically.
 
 Use **Reload Configuration and Animations** in the menu after changing
 configuration or animation files. Reload clears active client activities and

@@ -6,6 +6,7 @@ struct AppConfiguration {
   let keepaliveInterval: TimeInterval
   let activityTimeout: TimeInterval
   let autoStart: Bool
+  let defaultAnimation: String
 
   static let template = """
     # Seconds between client keepalive messages; must be greater than zero.
@@ -14,6 +15,8 @@ struct AppConfiguration {
     activity_timeout_seconds = 5
     # Whether Nyathing should launch automatically when you log in.
     auto_start = false
+    # Animation filename used when a client omits the animation field.
+    default_animation = "nyathing_36x36.png"
     """
 
   static var configurationDirectory: URL {
@@ -81,7 +84,6 @@ struct AppConfiguration {
     let obsoleteComments = [
       "# Animate the app's icon instead of showing the static project logo.",
       "# Animate the app's main icon instead of showing the static logo.",
-      "# Animation filename in the sibling animations directory.",
     ]
     let retainedLines = text.split(separator: "\n", omittingEmptySubsequences: false).compactMap {
       rawLine -> String? in
@@ -93,9 +95,16 @@ struct AppConfiguration {
       let line = stripComment(from: rawLine).trimmingCharacters(in: .whitespaces)
       guard let equal = line.firstIndex(of: "=") else { return original }
       let key = line[..<equal].trimmingCharacters(in: .whitespaces)
-      if key == "animate_icon" || key == "default_animation" {
+      if key == "animate_icon" {
         removedObsoleteSettings = true
         return nil
+      }
+      if key == "default_animation",
+        line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
+          == "\"ghost_36x36.png\""
+      {
+        removedObsoleteSettings = true
+        return "\(original[..<equal])= \"nyathing_36x36.png\""
       }
       return original
     }
@@ -115,7 +124,10 @@ struct AppConfiguration {
       let key = line[..<equal].trimmingCharacters(in: .whitespaces)
       let value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
       guard
-        ["keepalive_interval_seconds", "activity_timeout_seconds", "auto_start"].contains(key),
+        [
+          "keepalive_interval_seconds", "activity_timeout_seconds", "auto_start",
+          "default_animation",
+        ].contains(key),
         values[key] == nil
       else { throw ConfigError.invalidKey(key, offset + 1) }
       values[key] = value
@@ -134,10 +146,24 @@ struct AppConfiguration {
     guard let rawAuto = values["auto_start"], rawAuto == "true" || rawAuto == "false" else {
       throw ConfigError.invalidValue("auto_start")
     }
+    guard let rawAnimation = values["default_animation"],
+      rawAnimation.count >= 2, rawAnimation.first == "\"", rawAnimation.last == "\""
+    else {
+      throw ConfigError.invalidValue("default_animation")
+    }
+    let defaultAnimation = String(rawAnimation.dropFirst().dropLast())
+    guard !defaultAnimation.contains("/"), !defaultAnimation.contains("\\"),
+      (try? SpriteAnimation.load(
+        from: animationsDirectory.appendingPathComponent(
+          defaultAnimation))) != nil
+    else {
+      throw ConfigError.invalidValue("default_animation")
+    }
     return AppConfiguration(
       keepaliveInterval: try number("keepalive_interval_seconds"),
       activityTimeout: try number("activity_timeout_seconds"),
-      autoStart: rawAuto == "true")
+      autoStart: rawAuto == "true",
+      defaultAnimation: defaultAnimation)
   }
 }
 
@@ -161,6 +187,9 @@ enum ConfigError: LocalizedError {
       case "auto_start":
         return
           "Missing or invalid '\(key)'. Add it to config.toml with the value true or false."
+      case "default_animation":
+        return
+          "Missing or invalid 'default_animation'. Set it to the filename of a valid animation in the animations directory."
       default:
         return "Missing or invalid setting: \(key). Check config.toml and correct its value."
       }

@@ -21,6 +21,7 @@ final class ConfigurationTests: XCTestCase {
   func testFirstLaunchSeedsConfigurationAndSampleAnimation() throws {
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
     XCTAssertEqual(configuration.keepaliveInterval, 5)
+    XCTAssertEqual(configuration.defaultAnimation, "nyathing_36x36.png")
     XCTAssertTrue(
       FileManager.default.fileExists(
         atPath: temporaryDirectory.appendingPathComponent("config.toml").path))
@@ -28,7 +29,7 @@ final class ConfigurationTests: XCTestCase {
       FileManager.default.fileExists(
         atPath:
           temporaryDirectory
-          .appendingPathComponent("animations/ghost_36x36.png").path))
+          .appendingPathComponent("animations/nyathing_36x36.png").path))
     XCTAssertTrue(
       FileManager.default.fileExists(
         atPath:
@@ -52,11 +53,14 @@ final class ConfigurationTests: XCTestCase {
     XCTAssertEqual(explosion.frames.count, 16)
   }
 
-  func testRemovesObsoleteIconSettingsFromExistingConfiguration() throws {
-    let oldTemplate = AppConfiguration.template.replacingOccurrences(
-      of: "auto_start = false",
-      with:
-        "auto_start = false\nanimate_icon = false\ndefault_animation = \"missing_36x36.png\"")
+  func testRemovesObsoleteIconSettingAndKeepsDefaultAnimation() throws {
+    let oldTemplate = AppConfiguration.template
+      .replacingOccurrences(
+        of: "default_animation = \"nyathing_36x36.png\"",
+        with: "default_animation = \"ghost_36x36.png\""
+      )
+      .replacingOccurrences(
+        of: "auto_start = false", with: "auto_start = false\nanimate_icon = false")
     try writeConfiguration(oldTemplate)
 
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
@@ -67,7 +71,7 @@ final class ConfigurationTests: XCTestCase {
     let savedConfig = try String(
       contentsOf: temporaryDirectory.appendingPathComponent("config.toml"), encoding: .utf8)
     XCTAssertFalse(savedConfig.contains("animate_icon"))
-    XCTAssertFalse(savedConfig.contains("default_animation"))
+    XCTAssertTrue(savedConfig.contains("default_animation = \"nyathing_36x36.png\""))
   }
 
   func testAnimationResolutionUsesAssetOrBuiltInGhost() throws {
@@ -88,7 +92,8 @@ final class ConfigurationTests: XCTestCase {
   }
 
   func testRejectsMissingAndNonPositiveSettings() throws {
-    try writeConfiguration("keepalive_interval_seconds = 5\n")
+    try writeConfiguration(
+      "keepalive_interval_seconds = 5\nactivity_timeout_seconds = 5\nauto_start = false\n")
     XCTAssertThrowsError(try AppConfiguration.load(in: temporaryDirectory))
 
     try writeConfiguration(
@@ -108,7 +113,7 @@ final class ConfigurationTests: XCTestCase {
 
   private static var ghostFixture: URL {
     URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-      .appendingPathComponent("../../Sources/Nyathing/Resources/ghost_36x36.png")
+      .appendingPathComponent("../../Sources/Nyathing/Resources/nyathing_36x36.png")
       .standardizedFileURL
   }
 }
@@ -139,7 +144,7 @@ final class ActivityLifecycleTests: XCTestCase {
 
   func testResetClearsActivitiesDeadlinesAndDisconnectCount() throws {
     var lifecycle = ActivityLifecycle()
-    let id = lifecycle.start(animation: "ghost_36x36.png", deadline: 10)
+    let id = lifecycle.start(animation: "nyathing_36x36.png", deadline: 10)
     _ = lifecycle.expire(id, deadline: 10)
     XCTAssertEqual(lifecycle.disconnectedCount, 1)
 
@@ -165,6 +170,7 @@ final class LocalAPIServerTests: XCTestCase {
     var stoppedIDs: [String] = []
     let server = LocalAPIServer(
       socketPath: socketPath,
+      defaultAnimation: "nyan_54x36.png",
       onStart: { animation in
         lock.lock()
         defer { lock.unlock() }
@@ -195,8 +201,12 @@ final class LocalAPIServerTests: XCTestCase {
       try second.command(["command": "start", "animation": "same_36x36.png"])["activity_id"]
         as? String,
       "activity-2")
+    XCTAssertEqual(
+      try second.command(["command": "start"])["activity_id"] as? String,
+      "activity-3")
     lock.lock()
-    XCTAssertEqual(startedAnimations, ["same_36x36.png", "same_36x36.png"])
+    XCTAssertEqual(
+      startedAnimations, ["same_36x36.png", "same_36x36.png", "nyan_54x36.png"])
     XCTAssertEqual(stoppedIDs, ["activity-1"])
     lock.unlock()
 

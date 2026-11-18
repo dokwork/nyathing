@@ -25,6 +25,9 @@ rm -rf "$APP_DIR" "$STAGE" "$DIST"
 mkdir -p "$CONTENTS/MacOS" "$RESOURCES" "$STAGE" "$DIST"
 cp .build/release/nyathing "$CONTENTS/MacOS/nyathing"
 cp -R .build/release/Nyathing_Nyathing.bundle "$RESOURCES/"
+ICONSET="$ROOT/.build/dmg/Nyathing.iconset"
+swift Scripts/make-app-icon.swift assets/nyathing.png "$ICONSET"
+iconutil -c icns "$ICONSET" -o "$RESOURCES/Nyathing.icns"
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -36,6 +39,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>nyathing</string>
     <key>CFBundleIdentifier</key>
     <string>com.nyathing.Nyathing</string>
+    <key>CFBundleIconFile</key>
+    <string>Nyathing</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
