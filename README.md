@@ -9,18 +9,30 @@ Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
 task is done.
 
+The application consists of `Nyathing.app`, which runs the menu-bar server, and
+a `nyathing` command-line symlink to the app's executable.
+
 ## Install
 
-The **Releases** page currently provides a disk image (`nyathing-X.Y.Z.dmg`),
-not the installer package. Open the disk image and drag `Nyathing.app` to
-**Applications** to install the menu-bar app. This does not install the CLI
-symlink.
+Download the installer package from the repository's **Releases** page. Open
+the package and follow the Installer prompts to install `Nyathing.app` in
+`/Applications`. The installer also creates the `/usr/local/bin/nyathing`
+command symlink and requests administrator authorization to make these
+system-wide changes.
 
-To install the CLI, build the installer package from the repository as described
-in [Build and package](#build-and-package), then open `out/Nyathing.pkg`. The
-installer places `Nyathing.app` in `/Applications` and creates the
-`/usr/local/bin/nyathing` command symlink. It requests administrator
-authorization to make these system-wide changes.
+To remove the installed app and command, run:
+
+```sh
+nyathing uninstall
+```
+
+Uninstall requests administrator authorization. It asks
+`Remove Nyathing configuration and user animations? [y/N]`; the default is no.
+Answering no preserves configuration and animations while still removing the
+app and CLI symlink. Removal waits until Nyathing has exited; a macOS alert
+reports if deferred removal fails.
+
+**Note**
 
 The app and package are **unsigned** and not notarized, so macOS may block the
 app because it was downloaded from the internet. If macOS blocks it, try opening
@@ -35,53 +47,33 @@ The **Open Anyway** option appears after you try to open the app. You may need
 to enter your password or confirm with Touch ID.
 
 Alternatively, build and run `Nyathing` locally using the instructions in
-[Build and run](#build-and-run); locally built apps are not quarantined.
+[Build from source](#build-from-source); locally built apps are not quarantined.
 
-## CLI usage
+## Build from source
 
-Use `nyathing` to run a command while its activity animation is displayed:
+Requires macOS 12+ and Swift 5.9 or later. Run the commands below from the
+repository root.
 
-```sh
-nyathing ./script.sh
-nyathing --animation nyan_54x36.png ./script.sh
-nyathing -a nyan_54x36.png ./script.sh
-nyathing './scripts/my task.sh'
-nyathing --help
-nyathing --version
-```
+### Run the server
 
-`--animation` (or `-a`) selects an animation from Nyathing's user animation
-directory. Without it, the CLI uses `nyathing_36x36.png`, regardless of the
-configured server default. Quote paths containing spaces as usual in your shell.
-Relative command paths are resolved
-from the current working directory. Nyathing inherits the command's standard
-input and output streams, waits for it to finish, and returns its exit status.
-
-To remove the installed app and command, run:
-
-```sh
-nyathing uninstall
-```
-
-Uninstall requests administrator authorization. It asks
-`Remove Nyathing configuration and user animations? [y/N]`; the default is no.
-Answering no preserves configuration and animations while still removing the
-app and CLI symlink. Removal waits until Nyathing has exited; a macOS alert
-reports if deferred removal fails.
-
-## Build and run
-
-Requires macOS 12+ and Swift 5.9 or later. From the repository root:
+Build and launch the menu-bar server:
 
 ```sh
 swift build
 swift run nyathing
 ```
 
-## Build and package
+### Run the CLI
 
-Requires macOS 12+ and Swift 5.9 or later. From the repository root, build and
-test with:
+The CLI runs a command while displaying an activity animation. For example:
+
+```sh
+swift run nyathing sleep 5
+```
+
+### Build and package
+
+Build and test with:
 
 ```sh
 swift build
@@ -172,10 +164,7 @@ Keep all four settings in your `config.toml`; Nyathing does not fill in omitted
 settings. Set `auto_start` to `true` or `false`; both durations must be positive
 numbers. Set `default_animation` to the filename of a valid animation in the
 `animations/` directory. Requests with an explicit animation use it; missing or
-unavailable requested animations fall back to the built-in ghost. Older
-configuration files have the obsolete icon-animation setting removed
-automatically.
-
+unavailable requested animations fall back to the built-in ghost.
 Use **Reload Configuration and Animations** in the menu after changing
 configuration or animation files. Reload clears active client activities and
 the disconnected-client count.
@@ -224,3 +213,24 @@ offer **Open Configuration**; animation errors offer **Open Animations Folder**.
 If the socket path is already in use, quit the existing instance before
 launching another. Invalid animation files are reported in the log; correct
 them and reload.
+
+## CLI usage
+
+The CLI is a simple example of a client using Nyathing's server: it starts an
+activity, keeps it alive while a command runs, then stops it. For example, show
+an animation while waiting five seconds:
+
+```sh
+nyathing sleep 5
+nyathing --animation nyan_54x36.png sleep 5
+nyathing -a nyan_54x36.png sleep 5
+nyathing --help
+nyathing --version
+```
+
+`--animation` (or `-a`) selects an animation from Nyathing's user animation
+directory. Without it, the CLI uses `nyathing_36x36.png`, regardless of the
+configured server default. Quote paths containing spaces as usual in your shell.
+Relative command paths are resolved from the current working directory.
+Nyathing inherits the command's standard input and output streams, waits for it
+to finish, and returns its exit status.

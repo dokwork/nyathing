@@ -100,7 +100,9 @@ enum NyathingCLI {
   private static func execute(_ cli: CLIArguments) throws -> Int32 {
     let executable = try resolveExecutable(cli.command)
     let configuration = try AppConfiguration.load()
-    try validateAnimation(cli.animation, in: AppConfiguration.configurationDirectory)
+    let animationsDirectory = AppConfiguration.configurationDirectory
+      .appendingPathComponent("animations", isDirectory: true)
+    try validateAnimation(cli.animation, in: animationsDirectory)
     let keepaliveInterval = keepaliveInterval(for: configuration)
     let client = try LocalAPIClient.connectOrStartServer()
     let activity = try client.command(["command": "start", "animation": cli.animation])
