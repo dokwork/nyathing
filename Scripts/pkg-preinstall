@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+CLI_PATH="/usr/local/bin/nyathing"
+if [[ -e "$CLI_PATH" || -L "$CLI_PATH" ]]; then
+  echo "Cannot install Nyathing: $CLI_PATH already exists." >&2
+  exit 1
+fi
