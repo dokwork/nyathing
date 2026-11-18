@@ -68,7 +68,7 @@ struct AppConfiguration {
     if !FileManager.default.fileExists(atPath: configURL.path) {
       try template.write(to: configURL, atomically: true, encoding: .utf8)
     }
-    if let bundledResources = Bundle.module.resourceURL {
+    if let bundledResources = BundledResources.bundle.resourceURL {
       let bundledAnimations = try FileManager.default.contentsOfDirectory(
         at: bundledResources, includingPropertiesForKeys: nil)
       for bundled in bundledAnimations where bundled.pathExtension.lowercased() == "png" {

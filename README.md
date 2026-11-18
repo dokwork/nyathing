@@ -13,19 +13,20 @@ task is done.
 
 Download `nyathing-X.Y.Z.dmg` from the repository's **Releases** page and open
 it. Drag `Nyathing.app` onto the **Applications** folder shortcut in the window.
-The app is unsigned and not notarized, so macOS may block it because it was
-downloaded from the internet. To remove the quarantine flag, open Terminal and
-run:
+The app is **unsigned** and not notarized, so macOS may block it because it was
+downloaded from the internet. If macOS blocks the app, try opening it once,
+then allow it in **System Settings → Privacy & Security**:
 
-```sh
-xattr -dr com.apple.quarantine /Applications/Nyathing.app
-```
+1. Open **System Settings** and select **Privacy & Security**.
+2. Scroll to the **Security** section.
+3. Click **Open Anyway** next to the message about Nyathing being blocked,
+   then confirm when prompted.
 
-If you installed the app somewhere else, replace `/Applications/Nyathing.app`
-with its actual path. 
+The **Open Anyway** option appears after you try to open the app. You may need
+to enter your password or confirm with Touch ID.
 
-Alternatively, build and run Nyathing locally using the instructions in [Build
-and install](#build-and-install); locally built apps are not quarantined.
+Alternatively, build and run `Nyathing` locally using the instructions in 
+[Build and install](#build-and-install); locally built apps are not quarantined.
 
 ## Build and run
 
