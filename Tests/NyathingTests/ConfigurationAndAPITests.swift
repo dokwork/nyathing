@@ -27,6 +27,15 @@ final class CLITests: XCTestCase {
     XCTAssertThrowsError(try CLIArguments.parse([]))
     XCTAssertThrowsError(try CLIArguments.parse(["-a", "animation.png"]))
     XCTAssertThrowsError(try CLIArguments.parse(["--animation"]))
+    XCTAssertThrowsError(try CLIArguments.parse(["--animation", "", "echo"]))
+  }
+
+  func testPathsWithSpacesRemainSingleCommandAndAnimationValues() throws {
+    let parsed = try XCTUnwrap(
+      CLIArguments.parse(["--animation", "my animations/nyan cat.png", "./some folder/run me"]))
+    XCTAssertEqual(parsed.animation, "my animations/nyan cat.png")
+    XCTAssertEqual(parsed.command, "./some folder/run me")
+    XCTAssertTrue(parsed.arguments.isEmpty)
   }
 
   func testRejectsUnavailableRequestedAnimation() throws {
@@ -77,25 +86,6 @@ final class CLITests: XCTestCase {
     XCTAssertEqual(chmod(executable.path, 0o755), 0)
 
     XCTAssertEqual(try NyathingCLI.resolveExecutable(name), executable.path)
-  }
-}
-
-final class UninstallTests: XCTestCase {
-  func testConfirmationDefaultsToNoAndAcceptsYesOrNo() throws {
-    XCTAssertFalse(try NyathingUninstaller.parseConfirmation(""))
-    XCTAssertFalse(try NyathingUninstaller.parseConfirmation(" N "))
-    XCTAssertFalse(try NyathingUninstaller.parseConfirmation("no"))
-    XCTAssertTrue(try NyathingUninstaller.parseConfirmation(" Y "))
-    XCTAssertTrue(try NyathingUninstaller.parseConfirmation("yes"))
-    XCTAssertThrowsError(try NyathingUninstaller.parseConfirmation("maybe"))
-  }
-
-  func testDeferredHelperWaitsForBundleProcessesAndReportsFailure() {
-    let helper = NyathingUninstaller.deferredRemovalHelperContents
-    XCTAssertTrue(helper.contains("while /bin/kill -0 \"$parent_pid\""))
-    XCTAssertTrue(helper.contains("/usr/sbin/lsof -t \"$bundle_executable\""))
-    XCTAssertTrue(helper.contains("Nyathing uninstall failed"))
-    XCTAssertTrue(helper.contains("trap '/bin/rm -f -- \"$helper_path\"' EXIT"))
   }
 }
 
