@@ -85,8 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let activities = activeTaskMenuItems()
     for menuItem in activities { menu.addItem(menuItem) }
     if !activities.isEmpty { menu.addItem(.separator()) }
-    menu.addItem(
-      withTitle: "View Errors", action: #selector(viewErrors), keyEquivalent: "")
+    if !lifecycle.timedOutActivities.isEmpty {
+      menu.addItem(
+        withTitle: "View Errors", action: #selector(viewErrors), keyEquivalent: "")
+    }
     menu.addItem(
       withTitle: "Reset Disconnected Count", action: #selector(resetDisconnectedCount),
       keyEquivalent: "")
