@@ -89,7 +89,10 @@ enum LaunchAgentSupport {
 
   static func startServer(in configurationDirectory: URL) throws {
     try configure(enabled: true, in: configurationDirectory)
-    if launchctl(["print", serviceTarget]).status == 0 { return }
+    if launchctl(["print", serviceTarget]).status == 0 {
+      try runLaunchctl(["kickstart", serviceTarget])
+      return
+    }
     try runLaunchctl(["bootstrap", "gui/\(getuid())", agentURL.path])
   }
 
@@ -101,7 +104,13 @@ enum LaunchAgentSupport {
   }
 
   static func serverIsRunning() -> Bool {
-    launchctl(["print", serviceTarget]).status == 0
+    let result = launchctl(["print", serviceTarget])
+    guard result.status == 0 else { return false }
+    return result.output.components(separatedBy: .newlines).contains { line in
+      guard line.trimmingCharacters(in: .whitespaces).hasPrefix("pid = ") else { return false }
+      let value = line.trimmingCharacters(in: .whitespaces).dropFirst("pid = ".count)
+      return Int(value).map { $0 > 0 } ?? false
+    }
   }
 
   private static func runLaunchctl(_ arguments: [String]) throws {

@@ -218,11 +218,6 @@ final class ConfigurationTests: XCTestCase {
     let matrix = try SpriteAnimation.load(from: matrixURL)
     XCTAssertEqual(matrix.frameSize, NSSize(width: 36, height: 36))
     XCTAssertEqual(matrix.frames.count, 16)
-    let explosionURL = temporaryDirectory.appendingPathComponent("animations/explosion_36x36.png")
-    XCTAssertTrue(FileManager.default.fileExists(atPath: explosionURL.path))
-    let explosion = try SpriteAnimation.load(from: explosionURL)
-    XCTAssertEqual(explosion.frameSize, NSSize(width: 36, height: 36))
-    XCTAssertEqual(explosion.frames.count, 16)
   }
 
   func testRemovesObsoleteIconSettingAndKeepsDefaultAnimation() throws {

@@ -114,7 +114,7 @@ enum NyathingCLI {
     }
     if arguments.count == 2, arguments[0] == "completion" {
       guard let script = ShellCompletion.script(for: arguments[1]) else {
-        FileHandle.standardError.write(Data("Supported shells: zsh, bash\\n".utf8))
+        FileHandle.standardError.write(Data("Supported shells: zsh, bash\n".utf8))
         return 1
       }
       print(script, terminator: "")
