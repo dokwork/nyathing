@@ -178,6 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     updateMainStatusItemVisibility()
     updateMainStatusItem()
     refreshErrorsWindow()
+    if lifecycle.timedOutActivities.isEmpty {
+      errorsWindow?.close()
+      errorsWindow = nil
+      errorsStackView = nil
+    }
   }
 
   private func refreshErrorsWindow() {
@@ -192,17 +197,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       stack.addArrangedSubview(emptyLabel)
       return
     }
-    for error in lifecycle.timedOutActivities {
+    for (index, error) in lifecycle.timedOutActivities.enumerated() {
+      if index > 0 {
+        let separator = NSBox()
+        separator.boxType = .separator
+        stack.addArrangedSubview(separator)
+        separator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+      }
       let row = NSStackView()
       row.orientation = .horizontal
       row.alignment = .centerY
       row.spacing = 12
       row.distribution = .fill
+      let leadingInset = NSView()
+      leadingInset.setContentHuggingPriority(.required, for: .horizontal)
+      leadingInset.widthAnchor.constraint(equalToConstant: 8).isActive = true
       let descriptionLabel = NSTextField(wrappingLabelWithString: error.description)
       descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       let acknowledgeButton = NSButton(
         title: "Acknowledge", target: self, action: #selector(acknowledgeError(_:)))
       acknowledgeButton.identifier = NSUserInterfaceItemIdentifier(error.id.uuidString)
+      row.addArrangedSubview(leadingInset)
       row.addArrangedSubview(descriptionLabel)
       row.addArrangedSubview(acknowledgeButton)
       stack.addArrangedSubview(row)
