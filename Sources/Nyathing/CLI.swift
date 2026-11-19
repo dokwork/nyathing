@@ -38,18 +38,23 @@ struct CLIArguments {
   let command: String
   let arguments: [String]
 
-  static let usage = """
-    Nyathing displays playful animations in the macOS menu bar while commands run.
+  static var usage: String {
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+      ?? "Development build"
+    return """
+    Nyathing \(version) displays playful animations in the macOS menu bar while commands run.
 
     Usage:
       nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]
       nyathing uninstall
+      nyathing list
       nyathing --help
       nyathing --version
 
     Commands:
       COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
       uninstall               Remove the installed app and CLI command.
+      list                    List available valid animations.
 
     Options:
       -a, --animation FILE    Select an animation from the user animations folder.
@@ -60,6 +65,7 @@ struct CLIArguments {
       nyathing sleep 5
       nyathing --animation nyan_54x36.png make test
     """
+  }
 
   static func parse(_ arguments: [String]) throws -> CLIArguments {
     var values = arguments
@@ -107,6 +113,15 @@ enum NyathingCLI {
       return 0
     }
     do {
+      if arguments == ["list"] {
+        _ = try AppConfiguration.load()
+        let directory = AppConfiguration.configurationDirectory
+          .appendingPathComponent("animations", isDirectory: true)
+        for filename in SpriteAnimation.loadAll(in: directory).keys.sorted() {
+          print(filename)
+        }
+        return 0
+      }
       let parsed = try CLIArguments.parse(arguments)
       return try execute(parsed)
     } catch {
@@ -120,10 +135,10 @@ enum NyathingCLI {
     let configuration = try AppConfiguration.load()
     let animationsDirectory = AppConfiguration.configurationDirectory
       .appendingPathComponent("animations", isDirectory: true)
-    try validateAnimation(cli.animation, in: animationsDirectory)
+    let animation = try resolveAnimation(cli.animation, in: animationsDirectory)
     let keepaliveInterval = keepaliveInterval(for: configuration)
     let client = try LocalAPIClient.connectOrStartServer()
-    let activity = try client.command(["command": "start", "animation": cli.animation])
+    let activity = try client.command(["command": "start", "animation": animation])
     guard let activityID = activity["activity_id"] as? String else {
       throw CLIError.api("The server returned an invalid activity response.")
     }
@@ -180,11 +195,26 @@ enum NyathingCLI {
   }
 
   static func validateAnimation(_ filename: String, in directory: URL) throws {
-    guard !filename.contains("/"), !filename.contains("\\"),
-      (try? SpriteAnimation.load(from: directory.appendingPathComponent(filename))) != nil
-    else {
-      throw CLIError.animationUnavailable(filename)
+    _ = try resolveAnimation(filename, in: directory)
+  }
+
+  static func resolveAnimation(_ name: String, in directory: URL) throws -> String {
+    guard !name.contains("/"), !name.contains("\\") else {
+      throw CLIError.animationUnavailable(name)
     }
+    let stem = name.replacingOccurrences(
+      of: #"_(?:36x36|54x36)\.png$"#, with: "", options: [.caseInsensitive, .regularExpression])
+    guard let files = try? FileManager.default.contentsOfDirectory(
+      at: directory, includingPropertiesForKeys: nil)
+    else { throw CLIError.animationUnavailable(name) }
+    for size in ["54x36", "36x36"] {
+      let expected = "\(stem)_\(size).png"
+      guard let file = files.first(where: {
+        $0.lastPathComponent.caseInsensitiveCompare(expected) == .orderedSame
+      }), let animation = try? SpriteAnimation.load(from: file) else { continue }
+      return animation.filename
+    }
+    throw CLIError.animationUnavailable(name)
   }
 
   static func keepaliveInterval(for configuration: AppConfiguration) -> TimeInterval {

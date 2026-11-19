@@ -91,13 +91,22 @@ custom animation:
 
 ```sh
   nyathing sleep 5
-  nyathing --animation nyan_54x36.png sleep 5
+  nyathing --animation nyan sleep 5
 ```
 
 `--animation` (or `-a`) selects an animation from Nyathing's user animation
-directory. Without it, the CLI uses `nyathing_36x36.png`, regardless of the
+directory. You can use the short name before the frame-size suffix and `.png`
+(for example, `nyan` instead of `nyan_54x36.png`). If both `nyan_36x36.png`
+and `nyan_54x36.png` exist, Nyathing chooses the larger `54x36` animation.
+Without `--animation`, the CLI uses `nyathing_36x36.png`, regardless of the
 configured server default. Quote paths containing spaces as usual in your shell.
 Relative command paths are resolved from the current working directory.
+
+List valid installed animations with:
+
+```sh
+  nyathing list
+```
 
 To view available options or check the installed version:
 
