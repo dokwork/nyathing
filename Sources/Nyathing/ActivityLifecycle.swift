@@ -71,6 +71,7 @@ struct ActivityLifecycle {
 
   mutating func resetDisconnectedCount() {
     disconnectedCount = 0
+    timedOutActivities.removeAll()
   }
 
   mutating func reset() {

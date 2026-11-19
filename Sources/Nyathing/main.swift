@@ -48,8 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var defaultAnimation = "nyathing_36x36.png"
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
-  private var warningFrames: [NSImage] = []
-  private var warningFrameIndex = 0
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -133,8 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func resetDisconnectedCount() {
     lifecycle.resetDisconnectedCount()
-    warningFrames = []
-    warningFrameIndex = 0
+    updateMainStatusItemVisibility()
     updateMainStatusItem()
   }
 
@@ -230,8 +227,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     activeAnimations.removeAll()
     updateMainStatusItemVisibility()
     lifecycle.reset()
-    warningFrames = []
-    warningFrameIndex = 0
   }
 
   /// Begins an activity for a named animation, sharing its status item with matching activities.
@@ -284,17 +279,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  /// Displays the timeout effect after lifecycle accounting records an expired activity.
+  /// Refreshes the static error indicator after lifecycle accounting records a timeout.
   private func presentActivityTimeout() {
-    let directory = AppConfiguration.configurationDirectory.appendingPathComponent(
-      "animations", isDirectory: true)
-    if let explosion = SpriteAnimation.loadAll(in: directory)["explosion_36x36.png"] {
-      warningFrames = explosion.frames
-      warningFrameIndex = 0
-    } else {
-      warningFrames = []
-      NyathingLog.write("Explosion animation explosion_36x36.png is missing or invalid")
-    }
+    updateMainStatusItemVisibility()
     updateMainStatusItem()
   }
 
@@ -381,30 +368,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       active.frameIndex = (active.frameIndex + 1) % active.frames.count
       updateActivityStatus(active)
     }
-    if !warningFrames.isEmpty {
-      warningFrameIndex += 1
-      if warningFrameIndex >= warningFrames.count {
-        warningFrames = []
-        warningFrameIndex = 0
-      }
-    }
     updateMainStatusItem()
   }
 
   private func updateMainStatusItemVisibility() {
-    mainStatusItem?.isVisible = activeAnimations.isEmpty
+    mainStatusItem?.isVisible = activeAnimations.isEmpty || !lifecycle.timedOutActivities.isEmpty
   }
 
   private func updateMainStatusItem() {
     guard let button = mainStatusItem?.button else { return }
-    if lifecycle.disconnectedCount > 0 {
-      button.image =
-        warningFrames.isEmpty
-        ? NSImage(
-          systemSymbolName: "exclamationmark.triangle.fill",
-          accessibilityDescription: "Disconnected clients")
-        : warningFrames[warningFrameIndex]
-      button.title = "\(lifecycle.disconnectedCount)"
+    let outstandingErrorCount = lifecycle.timedOutActivities.count
+    if outstandingErrorCount > 0 {
+      button.image = NSImage(
+        systemSymbolName: "exclamationmark.triangle.fill",
+        accessibilityDescription: "Outstanding timeout errors")
+      button.title = "\(outstandingErrorCount)"
     } else {
       button.image =
         staticAppIcon
@@ -414,7 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     button.image?.isTemplate = false
     button.image?.accessibilityDescription =
-      lifecycle.disconnectedCount > 0 ? "Disconnected clients" : "Nyathing"
+      outstandingErrorCount > 0 ? "Outstanding timeout errors" : "Nyathing"
   }
 
   private static func builtInGhostFrames() -> [NSImage] {

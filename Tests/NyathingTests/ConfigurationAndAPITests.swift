@@ -261,6 +261,18 @@ final class ActivityLifecycleTests: XCTestCase {
       ])
   }
 
+  func testResetDisconnectedCountClearsOutstandingTimeouts() {
+    var lifecycle = ActivityLifecycle()
+    let id = lifecycle.start(animation: "nyathing_36x36.png", deadline: 10)
+    _ = lifecycle.expire(id, deadline: 10)
+    XCTAssertEqual(lifecycle.timedOutActivities.count, 1)
+
+    lifecycle.resetDisconnectedCount()
+
+    XCTAssertEqual(lifecycle.disconnectedCount, 0)
+    XCTAssertTrue(lifecycle.timedOutActivities.isEmpty)
+  }
+
   func testResetClearsActivitiesDeadlinesAndDisconnectCount() throws {
     var lifecycle = ActivityLifecycle()
     let id = lifecycle.start(animation: "nyathing_36x36.png", deadline: 10)
