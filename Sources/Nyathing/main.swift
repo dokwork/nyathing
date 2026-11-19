@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var activityTimeout: TimeInterval = 5
   private var keepaliveInterval: TimeInterval = 5
   private var activityTimeouts: [UUID: TimeInterval] = [:]
+  private var activityStartOrder: [UUID: UInt64] = [:]
+  private var nextActivityStartOrder: UInt64 = 0
   private var defaultAnimation = "nyathing_36x36.png"
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
@@ -80,8 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func configureMenu(for item: NSStatusItem) {
     let menu = NSMenu()
-    menu.addItem(withTitle: "About Nyathing", action: #selector(showAbout), keyEquivalent: "")
-    menu.addItem(.separator())
+    let activities = activeTaskMenuItems()
+    for menuItem in activities { menu.addItem(menuItem) }
+    if !activities.isEmpty { menu.addItem(.separator()) }
     menu.addItem(
       withTitle: "View Errors", action: #selector(viewErrors), keyEquivalent: "")
     menu.addItem(
@@ -93,9 +96,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(
       withTitle: "Open Configuration", action: #selector(openConfiguration), keyEquivalent: "")
     menu.addItem(.separator())
+    menu.addItem(withTitle: "About Nyathing", action: #selector(showAbout), keyEquivalent: "")
     menu.addItem(withTitle: "Quit Nyathing", action: #selector(quit), keyEquivalent: "q")
     for menuItem in menu.items { menuItem.target = self }
     item.menu = menu
+  }
+
+  private func activeTaskMenuItems() -> [NSMenuItem] {
+    let rows = activityStartOrder.keys.sorted {
+      activityStartOrder[$0, default: 0] > activityStartOrder[$1, default: 0]
+    }
+    let font = NSFont.menuFont(ofSize: 0)
+    let widestActionTitle =
+      [
+        "View Errors", "Reset Disconnected Count", "Reload Configuration and Animations",
+        "Open Configuration", "About Nyathing", "Quit Nyathing",
+      ].map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+    let iconColumnWidth: CGFloat = 16
+    let horizontalMenuPadding: CGFloat = 16
+    let availableWidth = max(0, widestActionTitle - iconColumnWidth - horizontalMenuPadding)
+    return rows.compactMap { id in
+      guard let animation = lifecycle.animation(for: id),
+        let active = activeAnimations[animation], let icon = active.frames.first,
+        let description = lifecycle.description(for: id)
+      else { return nil }
+      let item = NSMenuItem(
+        title: Self.truncatedMenuDescription(description, font: font, width: availableWidth),
+        action: nil, keyEquivalent: "")
+      let menuIcon = (icon.copy() as? NSImage) ?? icon
+      menuIcon.size = NSSize(width: iconColumnWidth, height: iconColumnWidth)
+      item.image = menuIcon
+      item.isEnabled = false
+      return item
+    }
+  }
+
+  private static func truncatedMenuDescription(_ text: String, font: NSFont, width: CGFloat)
+    -> String
+  {
+    let attributes: [NSAttributedString.Key: Any] = [.font: font]
+    guard (text as NSString).size(withAttributes: attributes).width > width else { return text }
+    let ellipsis = "…"
+    var result = text
+    while !result.isEmpty,
+      ((result + ellipsis) as NSString).size(withAttributes: attributes).width > width
+    {
+      result.removeLast()
+    }
+    return result.isEmpty ? ellipsis : result + ellipsis
+  }
+
+  private func refreshStatusItemMenus() {
+    if let mainStatusItem { configureMenu(for: mainStatusItem) }
+    for active in activeAnimations.values { configureMenu(for: active.statusItem) }
   }
 
   @objc private func showAbout() {
@@ -324,6 +377,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func clearRuntimeState() {
     activeAnimations.removeAll()
+    activityStartOrder.removeAll()
+    nextActivityStartOrder = 0
     lifecycle.reset()
     updateMainStatusItemVisibility()
     updateMainStatusItem()
@@ -348,6 +403,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let deadlineUptime = deadline.uptimeNanoseconds
     let id = lifecycle.start(
       animation: resolvedFilename, description: description, deadline: deadlineUptime)
+    activityStartOrder[id] = nextActivityStartOrder
+    nextActivityStartOrder &+= 1
     activityTimeouts[id] = timeout
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
     if let active = activeAnimations[resolvedFilename] {
@@ -355,6 +412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       updateActivityStatus(active)
       updateMainStatusItemVisibility()
       updateMainStatusItem()
+      refreshStatusItemMenus()
       return id
     }
 
@@ -371,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     updateActivityStatus(active)
     updateMainStatusItemVisibility()
     updateMainStatusItem()
+    refreshStatusItemMenus()
     return id
   }
 
@@ -378,7 +437,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func stopActivity(_ id: UUID) {
     guard let filename = lifecycle.stop(id) else { return }
     activityTimeouts.removeValue(forKey: id)
+    activityStartOrder.removeValue(forKey: id)
     removeActivityFromStatusItem(id, animation: filename)
+    refreshStatusItemMenus()
   }
 
   private func removeActivityFromStatusItem(_ id: UUID, animation filename: String) {
@@ -476,7 +537,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     guard let expired = lifecycle.expire(id, deadline: deadlineUptime) else { return }
     activityTimeouts.removeValue(forKey: id)
+    activityStartOrder.removeValue(forKey: id)
     removeActivityFromStatusItem(id, animation: expired.animation)
+    refreshStatusItemMenus()
     presentActivityTimeout()
   }
 
