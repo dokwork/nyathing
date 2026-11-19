@@ -279,7 +279,8 @@ final class ActivityLifecycleTests: XCTestCase {
     XCTAssertEqual(
       lifecycle.expire(distinct, deadline: 30),
       ActivityLifecycle.ExpiredActivity(
-        id: distinct, animation: "other_36x36.png", description: ActivityLifecycle.missingDescription))
+        id: distinct, animation: "other_36x36.png",
+        description: ActivityLifecycle.missingDescription))
     XCTAssertEqual(lifecycle.disconnectedCount, 2)
     XCTAssertEqual(lifecycle.timedOutActivities.count, 2)
   }
@@ -302,7 +303,8 @@ final class ActivityLifecycleTests: XCTestCase {
         id: undescribed, animation: "nyathing_36x36.png",
         description: ActivityLifecycle.missingDescription))
     XCTAssertEqual(
-      lifecycle.timedOutActivities.map(\.description), [
+      lifecycle.timedOutActivities.map(\.description),
+      [
         "build test", ActivityLifecycle.missingDescription,
       ])
   }

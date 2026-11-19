@@ -39,32 +39,33 @@ struct CLIArguments {
   let arguments: [String]
 
   static var usage: String {
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    let version =
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
       ?? "Development build"
     return """
-    Nyathing \(version) displays playful animations in the macOS menu bar while commands run.
+      Nyathing \(version) displays playful animations in the macOS menu bar while commands run.
 
-    Usage:
-      nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]
-      nyathing uninstall
-      nyathing list
-      nyathing --help
-      nyathing --version
+      Usage:
+        nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]
+        nyathing uninstall
+        nyathing list
+        nyathing --help
+        nyathing --version
 
-    Commands:
-      COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
-      uninstall               Remove the installed app and CLI command.
-      list                    List available valid animations.
+      Commands:
+        COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
+        uninstall               Remove the installed app and CLI command.
+        list                    List available valid animations.
 
-    Options:
-      -a, --animation FILE    Select an animation from the user animations folder.
-      --help                  Show this help.
-      --version               Show the app version.
+      Options:
+        -a, --animation FILE    Select an animation from the user animations folder.
+        --help                  Show this help.
+        --version               Show the app version.
 
-    Examples:
-      nyathing sleep 5
-      nyathing --animation nyan_54x36.png make test
-    """
+      Examples:
+        nyathing sleep 5
+        nyathing --animation nyan_54x36.png make test
+      """
   }
 
   static func parse(_ arguments: [String]) throws -> CLIArguments {
@@ -221,14 +222,17 @@ enum NyathingCLI {
   private static func resolveNamedAnimation(_ name: String, in directory: URL) throws -> String {
     let stem = name.replacingOccurrences(
       of: #"_(?:36x36|54x36)\.png$"#, with: "", options: [.caseInsensitive, .regularExpression])
-    guard let files = try? FileManager.default.contentsOfDirectory(
-      at: directory, includingPropertiesForKeys: nil)
+    guard
+      let files = try? FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: nil)
     else { throw CLIError.animationUnavailable(name) }
     for size in ["54x36", "36x36"] {
       let expected = "\(stem)_\(size).png"
-      guard let file = files.first(where: {
-        $0.lastPathComponent.caseInsensitiveCompare(expected) == .orderedSame
-      }), let animation = try? SpriteAnimation.load(from: file) else { continue }
+      guard
+        let file = files.first(where: {
+          $0.lastPathComponent.caseInsensitiveCompare(expected) == .orderedSame
+        }), let animation = try? SpriteAnimation.load(from: file)
+      else { continue }
       return animation.filename
     }
     throw CLIError.animationUnavailable(name)

@@ -156,7 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       window.contentView = scrollView
       NSLayoutConstraint.activate([
         stack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor, constant: 12),
-        stack.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor, constant: -12),
+        stack.trailingAnchor.constraint(
+          equalTo: scrollView.contentView.trailingAnchor, constant: -12),
         stack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor, constant: 12),
         stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor, constant: -24),
         stack.heightAnchor.constraint(
@@ -182,7 +183,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func refreshErrorsWindow() {
     guard let stack = errorsStackView else { return }
-    stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
+    for subview in Array(stack.arrangedSubviews) {
+      stack.removeArrangedSubview(subview)
+      subview.removeFromSuperview()
+    }
     if lifecycle.timedOutActivities.isEmpty {
       let emptyLabel = NSTextField(labelWithString: "No errors")
       emptyLabel.lineBreakMode = .byWordWrapping
