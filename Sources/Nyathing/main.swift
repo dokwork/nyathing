@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 let arguments = Array(CommandLine.arguments.dropFirst())
-if arguments == ["--server"] {
+if arguments == [LaunchAgentSupport.serverArgument] {
   runNyathingApplication(serverMode: true)
   exit(EXIT_SUCCESS)
 }

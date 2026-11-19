@@ -51,6 +51,7 @@ struct CLIArguments {
       Usage:
         nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]
         nyathing uninstall
+        nyathing server start|stop|status
         nyathing list
         nyathing --help
         nyathing --version
@@ -58,6 +59,7 @@ struct CLIArguments {
       Commands:
         COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
         uninstall               Remove the installed app and CLI command.
+        server                  Manage the background server (start, stop, status).
         list                    List available valid animations.
 
       Options:
@@ -119,6 +121,25 @@ enum NyathingCLI {
       return 0
     }
     do {
+      if arguments.count == 2, arguments[0] == "server" {
+        let configurationDirectory = AppConfiguration.configurationDirectory
+        switch arguments[1] {
+        case "start":
+          try LaunchAgentSupport.startServer(in: configurationDirectory)
+          print("Nyathing server started in the background.")
+          return 0
+        case "stop":
+          try LaunchAgentSupport.stopServer(in: configurationDirectory)
+          print("Nyathing server stopped.")
+          return 0
+        case "status":
+          let running = LaunchAgentSupport.serverIsRunning()
+          print(running ? "Nyathing server is running." : "Nyathing server is not running.")
+          return running ? 0 : 1
+        default:
+          throw CLIError.usage
+        }
+      }
       if arguments == ["list"] {
         _ = try AppConfiguration.load()
         let directory = AppConfiguration.configurationDirectory
@@ -293,7 +314,7 @@ private final class LocalAPIClient {
     if let connected = try? connect() { return connected }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
-    process.arguments = ["--server"]
+    process.arguments = [LaunchAgentSupport.serverArgument]
     process.standardInput = FileHandle.nullDevice
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice

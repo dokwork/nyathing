@@ -216,12 +216,15 @@ repository root.
 
 ### Run the server
 
-Build and launch the menu-bar server:
+Build and launch the menu-bar server in the background:
 
 ```sh
 swift build
-swift run nyathing --server
+swift run nyathing server start
+swift run nyathing server status
+swift run nyathing server stop
 ```
+
 
 ### Run the CLI
 
