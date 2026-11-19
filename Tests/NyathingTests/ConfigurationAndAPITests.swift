@@ -174,6 +174,21 @@ final class CLITests: XCTestCase {
 
     XCTAssertEqual(try NyathingCLI.resolveExecutable(name), executable.path)
   }
+
+  func testResolvesBareArgv0ThroughPathForStartingServer() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("NyathingPATH-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let executable = directory.appendingPathComponent("nyathing")
+    try Data("#!/bin/sh\\nexit 0\\n".utf8).write(to: executable)
+    XCTAssertEqual(chmod(executable.path, 0o755), 0)
+
+    XCTAssertEqual(
+      try NyathingCLI.resolveExecutable("nyathing", searchPath: directory.path),
+      executable.path)
+  }
 }
 
 final class ConfigurationTests: XCTestCase {

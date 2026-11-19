@@ -91,15 +91,15 @@ struct CLIArguments {
 
 enum CLIError: LocalizedError {
   case usage
-  case animationUnavailable(String)
+  case animationUnavailable(String, String)
   case server(String)
   case api(String)
 
   var errorDescription: String? {
     switch self {
     case .usage: return CLIArguments.usage
-    case .animationUnavailable(let filename):
-      return "Animation not found or invalid: \(filename)."
+    case .animationUnavailable(let filename, let reason):
+      return "Animation '\(filename)' \(reason)"
     case .server(let message), .api(let message): return message
     }
   }
@@ -243,7 +243,8 @@ enum NyathingCLI {
 
   static func resolveAnimation(_ name: String, in directory: URL) throws -> String {
     guard !name.contains("/"), !name.contains("\\") else {
-      throw CLIError.animationUnavailable(name)
+      throw CLIError.animationUnavailable(
+        name, "must be a filename, not a path. Use 'nyathing list' to see available animations.")
     }
     if name == "random" {
       if let namedAnimation = try? resolveNamedAnimation(name, in: directory) {
@@ -261,17 +262,29 @@ enum NyathingCLI {
     guard
       let files = try? FileManager.default.contentsOfDirectory(
         at: directory, includingPropertiesForKeys: nil)
-    else { throw CLIError.animationUnavailable(name) }
+    else {
+      throw CLIError.animationUnavailable(
+        name,
+        "could not be checked because the animations directory is unavailable at \(directory.path)."
+      )
+    }
     for size in ["54x36", "36x36"] {
       let expected = "\(stem)_\(size).png"
       guard
         let file = files.first(where: {
           $0.lastPathComponent.caseInsensitiveCompare(expected) == .orderedSame
-        }), let animation = try? SpriteAnimation.load(from: file)
+        })
       else { continue }
-      return animation.filename
+      do {
+        return try SpriteAnimation.load(from: file).filename
+      } catch {
+        throw CLIError.animationUnavailable(name, "is invalid: \(error.localizedDescription).")
+      }
     }
-    throw CLIError.animationUnavailable(name)
+    throw CLIError.animationUnavailable(
+      name,
+      "was not found in \(directory.path). Expected a valid '*_36x36.png' or '*_54x36.png' file. Use 'nyathing list' to see available animations."
+    )
   }
 
   static func activityDescription(command: String, arguments: [String]) -> String {
@@ -282,7 +295,7 @@ enum NyathingCLI {
     min(configuration.keepaliveInterval, configuration.activityTimeout / 2)
   }
 
-  static func resolveExecutable(_ command: String) throws -> String {
+  static func resolveExecutable(_ command: String, searchPath: String? = nil) throws -> String {
     if command.contains("/") {
       let path = URL(
         fileURLWithPath: command,
@@ -300,9 +313,11 @@ enum NyathingCLI {
     if FileManager.default.isExecutableFile(atPath: currentDirectoryPath) {
       return currentDirectoryPath
     }
-    let paths = ProcessInfo.processInfo.environment[
-      "PATH", default: "/usr/bin:/bin:/usr/sbin:/sbin"
-    ].split(separator: ":")
+    let paths =
+      (searchPath
+      ?? ProcessInfo.processInfo.environment[
+        "PATH", default: "/usr/bin:/bin:/usr/sbin:/sbin"
+      ]).split(separator: ":")
     for directory in paths {
       let path = URL(fileURLWithPath: String(directory)).appendingPathComponent(command).path
       if FileManager.default.isExecutableFile(atPath: path) { return path }
@@ -397,7 +412,8 @@ private final class LocalAPIClient {
   static func connectOrStartServer() throws -> LocalAPIClient {
     if let connected = try? connect() { return connected }
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+    let executable = try NyathingCLI.resolveExecutable(CommandLine.arguments[0])
+    process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = [LaunchAgentSupport.serverArgument]
     process.standardInput = FileHandle.nullDevice
     process.standardOutput = FileHandle.nullDevice
