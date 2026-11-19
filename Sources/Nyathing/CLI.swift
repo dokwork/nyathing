@@ -138,7 +138,11 @@ enum NyathingCLI {
     let animation = try resolveAnimation(cli.animation, in: animationsDirectory)
     let keepaliveInterval = keepaliveInterval(for: configuration)
     let client = try LocalAPIClient.connectOrStartServer()
-    let activity = try client.command(["command": "start", "animation": animation])
+    let activity = try client.command([
+      "command": "start",
+      "animation": animation,
+      "description": activityDescription(command: cli.command, arguments: cli.arguments),
+    ])
     guard let activityID = activity["activity_id"] as? String else {
       throw CLIError.api("The server returned an invalid activity response.")
     }
@@ -215,6 +219,10 @@ enum NyathingCLI {
       return animation.filename
     }
     throw CLIError.animationUnavailable(name)
+  }
+
+  static func activityDescription(command: String, arguments: [String]) -> String {
+    ([command] + arguments).joined(separator: " ")
   }
 
   static func keepaliveInterval(for configuration: AppConfiguration) -> TimeInterval {

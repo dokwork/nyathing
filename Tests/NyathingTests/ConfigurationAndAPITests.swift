@@ -52,6 +52,13 @@ final class CLITests: XCTestCase {
       try NyathingCLI.validateAnimation("../nyan_54x36.png", in: animationsDirectory))
   }
 
+  func testActivityDescriptionJoinsChildCommandAndArguments() {
+    XCTAssertEqual(
+      NyathingCLI.activityDescription(command: "./run me", arguments: ["--flag", "a b"]),
+      "./run me --flag a b")
+    XCTAssertEqual(NyathingCLI.activityDescription(command: "sleep", arguments: []), "sleep")
+  }
+
   func testKeepaliveIntervalPrecedesConfiguredActivityTimeout() {
     let configuration = AppConfiguration(
       keepaliveInterval: 5, activityTimeout: 0.8, autoStart: false,
@@ -219,11 +226,39 @@ final class ActivityLifecycleTests: XCTestCase {
     XCTAssertNil(
       lifecycle.expire(second, deadline: 20),
       "An obsolete timeout must not expire a renewed activity.")
-    XCTAssertEqual(lifecycle.expire(second, deadline: 40), "same_36x36.png")
+    XCTAssertEqual(
+      lifecycle.expire(second, deadline: 40),
+      ActivityLifecycle.ExpiredActivity(
+        animation: "same_36x36.png", description: ActivityLifecycle.missingDescription))
     XCTAssertEqual(lifecycle.disconnectedCount, 1)
     XCTAssertEqual(lifecycle.activityCount(for: "same_36x36.png"), 0)
-    XCTAssertEqual(lifecycle.expire(distinct, deadline: 30), "other_36x36.png")
+    XCTAssertEqual(
+      lifecycle.expire(distinct, deadline: 30),
+      ActivityLifecycle.ExpiredActivity(
+        animation: "other_36x36.png", description: ActivityLifecycle.missingDescription))
     XCTAssertEqual(lifecycle.disconnectedCount, 2)
+    XCTAssertEqual(lifecycle.timedOutActivities.count, 2)
+  }
+
+  func testDescriptionsAreRetainedThroughTimeoutAndDefaultWhenAbsent() {
+    var lifecycle = ActivityLifecycle()
+    let described = lifecycle.start(
+      animation: "nyathing_36x36.png", description: "build test", deadline: 10)
+    let undescribed = lifecycle.start(animation: "nyathing_36x36.png", deadline: 20)
+
+    XCTAssertEqual(lifecycle.description(for: described), "build test")
+    XCTAssertEqual(lifecycle.description(for: undescribed), ActivityLifecycle.missingDescription)
+    XCTAssertEqual(
+      lifecycle.expire(described, deadline: 10),
+      ActivityLifecycle.ExpiredActivity(animation: "nyathing_36x36.png", description: "build test"))
+    XCTAssertEqual(
+      lifecycle.expire(undescribed, deadline: 20),
+      ActivityLifecycle.ExpiredActivity(
+        animation: "nyathing_36x36.png", description: ActivityLifecycle.missingDescription))
+    XCTAssertEqual(
+      lifecycle.timedOutActivities.map(\.description), [
+        "build test", ActivityLifecycle.missingDescription,
+      ])
   }
 
   func testResetClearsActivitiesDeadlinesAndDisconnectCount() throws {
@@ -238,6 +273,7 @@ final class ActivityLifecycleTests: XCTestCase {
     XCTAssertEqual(lifecycle.disconnectedCount, 0)
     XCTAssertNil(lifecycle.animation(for: activeID))
     XCTAssertNil(lifecycle.deadline(for: activeID))
+    XCTAssertTrue(lifecycle.timedOutActivities.isEmpty)
     XCTAssertEqual(lifecycle.activityCount(for: "same_36x36.png"), 0)
   }
 }
@@ -251,14 +287,16 @@ final class LocalAPIServerTests: XCTestCase {
     let socketPath = directory.appendingPathComponent("api.sock").path
     let lock = NSLock()
     var startedAnimations: [String] = []
+    var startedDescriptions: [String?] = []
     var stoppedIDs: [String] = []
     let server = LocalAPIServer(
       socketPath: socketPath,
       defaultAnimation: "nyan_54x36.png",
-      onStart: { animation in
+      onStart: { animation, description in
         lock.lock()
         defer { lock.unlock() }
         startedAnimations.append(animation)
+        startedDescriptions.append(description)
         return "activity-\(startedAnimations.count)"
       }, onKeepalive: { _ in },
       onStop: { id in
@@ -271,8 +309,9 @@ final class LocalAPIServerTests: XCTestCase {
 
     let first = try UnixJSONClient(path: socketPath)
     XCTAssertEqual(
-      try first.command(["command": "start", "animation": "same_36x36.png"])["activity_id"]
-        as? String,
+      try first.command([
+        "command": "start", "animation": "same_36x36.png", "description": "first client",
+      ])["activity_id"] as? String,
       "activity-1")
     XCTAssertEqual(
       try first.command(["command": "keepalive", "activity_id": "activity-1"])["ok"] as? Bool,
@@ -292,6 +331,7 @@ final class LocalAPIServerTests: XCTestCase {
     XCTAssertEqual(
       startedAnimations, ["same_36x36.png", "same_36x36.png", "nyan_54x36.png"])
     XCTAssertEqual(stoppedIDs, ["activity-1"])
+    XCTAssertEqual(startedDescriptions, ["first client", nil, nil])
     lock.unlock()
 
     let responseLock = NSLock()

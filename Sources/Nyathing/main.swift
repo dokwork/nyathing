@@ -194,10 +194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let generation = apiGeneration
     apiServer = LocalAPIServer(
       defaultAnimation: defaultAnimation,
-      onStart: { [weak self] filename in
+      onStart: { [weak self] filename, description in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
-          return self.startActivity(animation: filename).uuidString
+          return self.startActivity(animation: filename, description: description).uuidString
         }
       },
       onKeepalive: { [weak self] activityID in
@@ -236,10 +236,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// Begins an activity for a named animation, sharing its status item with matching activities.
   @discardableResult
-  func startActivity(animation filename: String) -> UUID {
+  func startActivity(animation filename: String, description: String? = nil) -> UUID {
     let deadline = DispatchTime.now() + activityTimeout
     let deadlineUptime = deadline.uptimeNanoseconds
-    let id = lifecycle.start(animation: filename, deadline: deadlineUptime)
+    let id = lifecycle.start(
+      animation: filename, description: description, deadline: deadlineUptime)
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
     if let active = activeAnimations[filename] {
       active.activityIDs.insert(id)
@@ -370,8 +371,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
       return
     }
-    guard let filename = lifecycle.expire(id, deadline: deadlineUptime) else { return }
-    removeActivityFromStatusItem(id, animation: filename)
+    guard let expired = lifecycle.expire(id, deadline: deadlineUptime) else { return }
+    removeActivityFromStatusItem(id, animation: expired.animation)
     presentActivityTimeout()
   }
 
