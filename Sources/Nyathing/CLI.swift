@@ -169,8 +169,8 @@ enum NyathingCLI {
       "command": "start",
       "animation": animation,
       "description": activityDescription(command: cli.command, arguments: cli.arguments),
-      "keepalive_interval_seconds": String(configuration.keepaliveInterval),
-      "activity_timeout_seconds": String(configuration.activityTimeout),
+      "keepalive_interval_seconds": NSNumber(value: configuration.keepaliveInterval),
+      "activity_timeout_seconds": NSNumber(value: configuration.activityTimeout),
     ])
     guard let activityID = activity["activity_id"] as? String else {
       throw CLIError.api("The server returned an invalid activity response.")
@@ -355,7 +355,7 @@ private final class LocalAPIClient {
     return LocalAPIClient(descriptor: fd)
   }
 
-  func command(_ request: [String: String]) throws -> [String: Any] {
+  func command(_ request: [String: Any]) throws -> [String: Any] {
     lock.lock()
     defer { lock.unlock() }
     var data = try JSONSerialization.data(withJSONObject: request)

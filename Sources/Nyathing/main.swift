@@ -336,14 +336,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     animation filename: String, description: String? = nil,
     activityTimeout timeout: TimeInterval? = nil
   ) -> UUID {
+    let directory = AppConfiguration.configurationDirectory.appendingPathComponent(
+      "animations", isDirectory: true)
+    let animations = SpriteAnimation.loadAll(in: directory)
+    let resolvedFilename = filename == "random"
+      ? (try? NyathingCLI.resolveAnimation(filename, in: directory)) ?? filename
+      : filename
     let timeout = timeout ?? activityTimeout
     let deadline = DispatchTime.now() + timeout
     let deadlineUptime = deadline.uptimeNanoseconds
     let id = lifecycle.start(
-      animation: filename, description: description, deadline: deadlineUptime)
+      animation: resolvedFilename, description: description, deadline: deadlineUptime)
     activityTimeouts[id] = timeout
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
-    if let active = activeAnimations[filename] {
+    if let active = activeAnimations[resolvedFilename] {
       active.activityIDs.insert(id)
       updateActivityStatus(active)
       updateMainStatusItemVisibility()
@@ -351,18 +357,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return id
     }
 
-    let directory = AppConfiguration.configurationDirectory.appendingPathComponent(
-      "animations", isDirectory: true)
-    let animations = SpriteAnimation.loadAll(in: directory)
     let frames: [NSImage]
-    switch AnimationResolution.resolve(filename, available: animations) {
+    switch AnimationResolution.resolve(resolvedFilename, available: animations) {
     case .asset(let animation): frames = animation.frames
     case .builtInGhost: frames = Self.builtInGhostFrames()
     }
-    guard let statusItem = mainStatusItem else { return id }
+    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    configureMenu(for: statusItem)
     let active = ActiveAnimation(
-      filename: filename, statusItem: statusItem, frames: frames, activityIDs: [id])
-    activeAnimations[filename] = active
+      filename: resolvedFilename, statusItem: statusItem, frames: frames, activityIDs: [id])
+    activeAnimations[resolvedFilename] = active
     updateActivityStatus(active)
     updateMainStatusItemVisibility()
     updateMainStatusItem()
@@ -381,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     active.activityIDs.remove(id)
     if active.activityIDs.isEmpty {
       activeAnimations.removeValue(forKey: filename)
+      NSStatusBar.system.removeStatusItem(active.statusItem)
       updateMainStatusItemVisibility()
       updateMainStatusItem()
     } else {
@@ -476,6 +481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func advanceAnimations() {
     for active in activeAnimations.values {
+      guard !active.frames.isEmpty else { continue }
       active.frameIndex = (active.frameIndex + 1) % active.frames.count
       updateActivityStatus(active)
     }
@@ -483,7 +489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func updateMainStatusItemVisibility() {
-    mainStatusItem?.isVisible = true
+    mainStatusItem?.isVisible = activeAnimations.isEmpty || !lifecycle.timedOutActivities.isEmpty
   }
 
   private func updateMainStatusItem() {
@@ -494,8 +500,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         systemSymbolName: "exclamationmark.triangle.fill",
         accessibilityDescription: "Outstanding timeout errors")
       button.title = "\(outstandingErrorCount)"
-    } else if let active = activeAnimations.values.first {
-      updateActivityStatus(active)
     } else {
       button.image =
         staticAppIcon

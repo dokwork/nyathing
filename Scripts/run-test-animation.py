@@ -58,7 +58,7 @@ started_here = False
 activity_ids = []
 try:
     if not api_is_ready():
-        app = subprocess.Popen([".build/debug/nyathing"])
+        app = subprocess.Popen([".build/debug/nyathing", "--nyathing-server"])
         started_here = True
         startup_deadline = time.monotonic() + 30
         while not api_is_ready():
