@@ -102,8 +102,22 @@ directory. You can use the short name before the frame-size suffix and `.png`
 (for example, `nyan` instead of `nyan_54x36.png`). If both `nyan_36x36.png`
 and `nyan_54x36.png` exist, Nyathing chooses the larger `54x36` animation.
 Without `--animation`, the CLI uses `nyathing_36x36.png`, regardless of the
-configured server default. Quote paths containing spaces as usual in your shell.
-Relative command paths are resolved from the current working directory.
+configured server default.
+
+Set `--animation` to `random` to choose a random valid animation from the user
+animations directory for that run. 
+
+If a valid `random_36x36.png` or `random_54x36.png` exists, Nyathing plays that
+named animation, preferring `54x36` when both are available. Otherwise, it
+chooses randomly from the valid user animations. If none are available, Nyathing
+uses its built-in ghost animation:
+
+```sh
+  nyathing --animation random sleep 5
+```
+
+Quote paths containing spaces as usual in your shell. Relative command paths
+are resolved from the current working directory.
 
 List valid installed animations with:
 
