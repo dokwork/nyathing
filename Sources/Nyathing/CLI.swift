@@ -98,6 +98,8 @@ enum CLIError: LocalizedError {
 }
 
 enum NyathingCLI {
+  static let builtInGhostAnimation = "__built_in_ghost__"
+
   static func run(_ arguments: [String]) -> Int32 {
     if arguments == ["uninstall"] {
       return NyathingUninstaller.run()
@@ -206,6 +208,17 @@ enum NyathingCLI {
     guard !name.contains("/"), !name.contains("\\") else {
       throw CLIError.animationUnavailable(name)
     }
+    if name == "random" {
+      if let namedAnimation = try? resolveNamedAnimation(name, in: directory) {
+        return namedAnimation
+      }
+      let available = SpriteAnimation.loadAll(in: directory)
+      return available.keys.sorted().randomElement() ?? builtInGhostAnimation
+    }
+    return try resolveNamedAnimation(name, in: directory)
+  }
+
+  private static func resolveNamedAnimation(_ name: String, in directory: URL) throws -> String {
     let stem = name.replacingOccurrences(
       of: #"_(?:36x36|54x36)\.png$"#, with: "", options: [.caseInsensitive, .regularExpression])
     guard let files = try? FileManager.default.contentsOfDirectory(

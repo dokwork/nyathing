@@ -52,6 +52,50 @@ final class CLITests: XCTestCase {
       try NyathingCLI.validateAnimation("../nyan_54x36.png", in: animationsDirectory))
   }
 
+  func testRandomAnimationSelectsFromAvailableAnimations() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("NyathingRandom-\\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    _ = try AppConfiguration.load(in: directory)
+    let animationsDirectory = directory.appendingPathComponent("animations", isDirectory: true)
+    let listedAnimations = Set(SpriteAnimation.loadAll(in: animationsDirectory).keys)
+
+    let selected = try NyathingCLI.resolveAnimation("random", in: animationsDirectory)
+
+    XCTAssertFalse(listedAnimations.isEmpty)
+    XCTAssertTrue(listedAnimations.contains(selected))
+  }
+
+  func testNamedRandomAnimationTakesPrecedence() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("NyathingRandom-\\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    _ = try AppConfiguration.load(in: directory)
+    let animationsDirectory = directory.appendingPathComponent("animations", isDirectory: true)
+    let randomAnimation = animationsDirectory.appendingPathComponent("random_36x36.png")
+    try FileManager.default.copyItem(
+      at: animationsDirectory.appendingPathComponent("nyathing_36x36.png"), to: randomAnimation)
+
+    XCTAssertEqual(
+      try NyathingCLI.resolveAnimation("random", in: animationsDirectory), "random_36x36.png")
+  }
+
+  func testRandomAnimationFallsBackToBuiltInGhostWhenPoolIsEmpty() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("NyathingRandom-\\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let selected = try NyathingCLI.resolveAnimation("random", in: directory)
+
+    XCTAssertEqual(selected, NyathingCLI.builtInGhostAnimation)
+    if case .builtInGhost = AnimationResolution.resolve(selected, available: [:]) {
+      XCTAssertTrue(true)
+    } else {
+      XCTFail("An empty random selection pool must resolve to the built-in ghost.")
+    }
+  }
+
   func testActivityDescriptionJoinsChildCommandAndArguments() {
     XCTAssertEqual(
       NyathingCLI.activityDescription(command: "./run me", arguments: ["--flag", "a b"]),
