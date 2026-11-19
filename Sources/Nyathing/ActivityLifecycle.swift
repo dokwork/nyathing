@@ -10,7 +10,8 @@ struct ActivityLifecycle {
   private(set) var timedOutActivities: [ExpiredActivity] = []
   private(set) var disconnectedCount = 0
 
-  struct ExpiredActivity: Equatable {
+  struct ExpiredActivity: Equatable, Identifiable {
+    let id: UUID
     let animation: String
     let description: String
   }
@@ -46,7 +47,7 @@ struct ActivityLifecycle {
     else { return nil }
     expirationDeadlines.removeValue(forKey: id)
     disconnectedCount += 1
-    let expired = ExpiredActivity(animation: animation, description: description)
+    let expired = ExpiredActivity(id: id, animation: animation, description: description)
     timedOutActivities.append(expired)
     return expired
   }
@@ -67,6 +68,13 @@ struct ActivityLifecycle {
     activities.values.reduce(into: 0) { count, value in
       if value == animation { count += 1 }
     }
+  }
+
+  mutating func acknowledgeTimeout(_ id: UUID) -> Bool {
+    guard let index = timedOutActivities.firstIndex(where: { $0.id == id }) else { return false }
+    timedOutActivities.remove(at: index)
+    disconnectedCount = max(0, disconnectedCount - 1)
+    return true
   }
 
   mutating func resetDisconnectedCount() {

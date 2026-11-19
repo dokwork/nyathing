@@ -229,13 +229,13 @@ final class ActivityLifecycleTests: XCTestCase {
     XCTAssertEqual(
       lifecycle.expire(second, deadline: 40),
       ActivityLifecycle.ExpiredActivity(
-        animation: "same_36x36.png", description: ActivityLifecycle.missingDescription))
+        id: second, animation: "same_36x36.png", description: ActivityLifecycle.missingDescription))
     XCTAssertEqual(lifecycle.disconnectedCount, 1)
     XCTAssertEqual(lifecycle.activityCount(for: "same_36x36.png"), 0)
     XCTAssertEqual(
       lifecycle.expire(distinct, deadline: 30),
       ActivityLifecycle.ExpiredActivity(
-        animation: "other_36x36.png", description: ActivityLifecycle.missingDescription))
+        id: distinct, animation: "other_36x36.png", description: ActivityLifecycle.missingDescription))
     XCTAssertEqual(lifecycle.disconnectedCount, 2)
     XCTAssertEqual(lifecycle.timedOutActivities.count, 2)
   }
@@ -250,15 +250,33 @@ final class ActivityLifecycleTests: XCTestCase {
     XCTAssertEqual(lifecycle.description(for: undescribed), ActivityLifecycle.missingDescription)
     XCTAssertEqual(
       lifecycle.expire(described, deadline: 10),
-      ActivityLifecycle.ExpiredActivity(animation: "nyathing_36x36.png", description: "build test"))
+      ActivityLifecycle.ExpiredActivity(
+        id: described, animation: "nyathing_36x36.png", description: "build test"))
     XCTAssertEqual(
       lifecycle.expire(undescribed, deadline: 20),
       ActivityLifecycle.ExpiredActivity(
-        animation: "nyathing_36x36.png", description: ActivityLifecycle.missingDescription))
+        id: undescribed, animation: "nyathing_36x36.png",
+        description: ActivityLifecycle.missingDescription))
     XCTAssertEqual(
       lifecycle.timedOutActivities.map(\.description), [
         "build test", ActivityLifecycle.missingDescription,
       ])
+  }
+
+  func testAcknowledgesTimeoutsIndividuallyEvenWhenDescriptionsMatch() {
+    var lifecycle = ActivityLifecycle()
+    let first = lifecycle.start(animation: "one", description: "same", deadline: 10)
+    let second = lifecycle.start(animation: "two", description: "same", deadline: 20)
+    _ = lifecycle.expire(first, deadline: 10)
+    _ = lifecycle.expire(second, deadline: 20)
+
+    XCTAssertTrue(lifecycle.acknowledgeTimeout(first))
+    XCTAssertEqual(lifecycle.timedOutActivities.map(\.id), [second])
+    XCTAssertEqual(lifecycle.disconnectedCount, 1)
+    XCTAssertFalse(lifecycle.acknowledgeTimeout(first))
+    XCTAssertTrue(lifecycle.acknowledgeTimeout(second))
+    XCTAssertTrue(lifecycle.timedOutActivities.isEmpty)
+    XCTAssertEqual(lifecycle.disconnectedCount, 0)
   }
 
   func testResetDisconnectedCountClearsOutstandingTimeouts() {

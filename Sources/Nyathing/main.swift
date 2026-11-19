@@ -48,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var defaultAnimation = "nyathing_36x36.png"
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
+  private var errorsWindow: NSWindow?
+  private var errorsStackView: NSStackView?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -81,6 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let menu = NSMenu()
     menu.addItem(withTitle: "About Nyathing", action: #selector(showAbout), keyEquivalent: "")
     menu.addItem(.separator())
+    menu.addItem(
+      withTitle: "View Errors", action: #selector(viewErrors), keyEquivalent: "")
     menu.addItem(
       withTitle: "Reset Disconnected Count", action: #selector(resetDisconnectedCount),
       keyEquivalent: "")
@@ -129,10 +133,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.terminate(nil)
   }
 
+  @objc private func viewErrors() {
+    if errorsWindow == nil {
+      let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+        styleMask: [.titled, .closable, .miniaturizable, .resizable],
+        backing: .buffered, defer: false)
+      window.title = "Timeout Errors"
+      window.isReleasedWhenClosed = false
+
+      let scrollView = NSScrollView()
+      scrollView.hasVerticalScroller = true
+      scrollView.translatesAutoresizingMaskIntoConstraints = false
+      let stack = NSStackView()
+      stack.orientation = .vertical
+      stack.alignment = .leading
+      stack.spacing = 10
+      stack.setContentHuggingPriority(.required, for: .vertical)
+      stack.setContentCompressionResistancePriority(.required, for: .vertical)
+      stack.translatesAutoresizingMaskIntoConstraints = false
+      scrollView.documentView = stack
+      window.contentView = scrollView
+      NSLayoutConstraint.activate([
+        stack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor, constant: 12),
+        stack.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor, constant: -12),
+        stack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor, constant: 12),
+        stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor, constant: -24),
+        stack.heightAnchor.constraint(
+          greaterThanOrEqualTo: scrollView.contentView.heightAnchor, constant: -24),
+      ])
+      errorsWindow = window
+      errorsStackView = stack
+    }
+    refreshErrorsWindow()
+    errorsWindow?.center()
+    errorsWindow?.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  @objc private func acknowledgeError(_ sender: NSButton) {
+    guard let id = UUID(uuidString: sender.identifier?.rawValue ?? ""),
+      lifecycle.acknowledgeTimeout(id)
+    else { return }
+    updateMainStatusItemVisibility()
+    updateMainStatusItem()
+    refreshErrorsWindow()
+  }
+
+  private func refreshErrorsWindow() {
+    guard let stack = errorsStackView else { return }
+    stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
+    if lifecycle.timedOutActivities.isEmpty {
+      let emptyLabel = NSTextField(labelWithString: "No errors")
+      emptyLabel.lineBreakMode = .byWordWrapping
+      stack.addArrangedSubview(emptyLabel)
+      return
+    }
+    for error in lifecycle.timedOutActivities {
+      let row = NSStackView()
+      row.orientation = .horizontal
+      row.alignment = .centerY
+      row.spacing = 12
+      row.distribution = .fill
+      let descriptionLabel = NSTextField(wrappingLabelWithString: error.description)
+      descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      let acknowledgeButton = NSButton(
+        title: "Acknowledge", target: self, action: #selector(acknowledgeError(_:)))
+      acknowledgeButton.identifier = NSUserInterfaceItemIdentifier(error.id.uuidString)
+      row.addArrangedSubview(descriptionLabel)
+      row.addArrangedSubview(acknowledgeButton)
+      stack.addArrangedSubview(row)
+      row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    }
+  }
+
   @objc private func resetDisconnectedCount() {
     lifecycle.resetDisconnectedCount()
     updateMainStatusItemVisibility()
     updateMainStatusItem()
+    refreshErrorsWindow()
   }
 
   @objc private func reloadFromMenu() {
@@ -225,8 +304,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       NSStatusBar.system.removeStatusItem(active.statusItem)
     }
     activeAnimations.removeAll()
-    updateMainStatusItemVisibility()
     lifecycle.reset()
+    updateMainStatusItemVisibility()
+    updateMainStatusItem()
+    refreshErrorsWindow()
   }
 
   /// Begins an activity for a named animation, sharing its status item with matching activities.
@@ -241,6 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       active.activityIDs.insert(id)
       updateActivityStatus(active)
       updateMainStatusItemVisibility()
+      updateMainStatusItem()
       return id
     }
 
@@ -258,6 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     activeAnimations[filename] = active
     updateActivityStatus(active)
     updateMainStatusItemVisibility()
+    updateMainStatusItem()
     return id
   }
 
@@ -283,6 +366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func presentActivityTimeout() {
     updateMainStatusItemVisibility()
     updateMainStatusItem()
+    refreshErrorsWindow()
   }
 
   private func updateActivityStatus(_ active: ActiveAnimation) {
@@ -372,7 +456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func updateMainStatusItemVisibility() {
-    mainStatusItem?.isVisible = activeAnimations.isEmpty || !lifecycle.timedOutActivities.isEmpty
+    mainStatusItem?.isVisible = true
   }
 
   private func updateMainStatusItem() {
