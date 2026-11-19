@@ -4,7 +4,9 @@ import Foundation
 /// Serves the local JSON Lines API over a current-user Unix domain socket.
 final class LocalAPIServer {
   private let defaultAnimation: String
-  private let onStart: (String, String?) throws -> String
+  private let defaultKeepaliveInterval: TimeInterval
+  private let defaultActivityTimeout: TimeInterval
+  private let onStart: (String, String?, TimeInterval, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
   private let onStop: (String) throws -> Void
   private let socketPath: String
@@ -16,11 +18,15 @@ final class LocalAPIServer {
   init(
     socketPath: String = LocalAPIServer.socketPath,
     defaultAnimation: String = "nyathing_36x36.png",
-    onStart: @escaping (String, String?) throws -> String,
+    defaultKeepaliveInterval: TimeInterval = 5,
+    defaultActivityTimeout: TimeInterval = 5,
+    onStart: @escaping (String, String?, TimeInterval, TimeInterval) throws -> String,
     onKeepalive: @escaping (String) throws -> Void,
     onStop: @escaping (String) throws -> Void
   ) {
     self.defaultAnimation = defaultAnimation
+    self.defaultKeepaliveInterval = defaultKeepaliveInterval
+    self.defaultActivityTimeout = defaultActivityTimeout
     self.onStart = onStart
     self.onKeepalive = onKeepalive
     self.onStop = onStop
@@ -216,9 +222,14 @@ final class LocalAPIServer {
       case "start":
         let animation = request["animation"] as? String ?? defaultAnimation
         guard !animation.isEmpty else { throw LocalAPIError.invalidRequest }
+        let keepaliveInterval = try seconds(
+          request["keepalive_interval_seconds"], default: defaultKeepaliveInterval)
+        let activityTimeout = try seconds(
+          request["activity_timeout_seconds"], default: defaultActivityTimeout)
         return [
           "ok": true,
-          "activity_id": try onStart(animation, request["description"] as? String),
+          "activity_id": try onStart(
+            animation, request["description"] as? String, keepaliveInterval, activityTimeout),
         ]
       case "keepalive":
         guard let activityID = request["activity_id"] as? String, !activityID.isEmpty else {
@@ -257,6 +268,15 @@ final class LocalAPIServer {
       }
       return true
     }
+  }
+
+  private func seconds(_ value: Any?, default fallback: TimeInterval) throws -> TimeInterval {
+    guard let value else { return fallback }
+    guard let number = value as? NSNumber, number.doubleValue.isFinite, number.doubleValue > 0
+    else {
+      throw LocalAPIError.invalidRequest
+    }
+    return number.doubleValue
   }
 
   private var isRunning: Bool {

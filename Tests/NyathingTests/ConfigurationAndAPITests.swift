@@ -368,7 +368,7 @@ final class LocalAPIServerTests: XCTestCase {
     let server = LocalAPIServer(
       socketPath: socketPath,
       defaultAnimation: "nyan_54x36.png",
-      onStart: { animation, description in
+      onStart: { animation, description, _, _ in
         lock.lock()
         defer { lock.unlock() }
         startedAnimations.append(animation)

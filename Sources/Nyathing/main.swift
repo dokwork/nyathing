@@ -45,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var activeAnimations: [String: ActiveAnimation] = [:]
   private var lifecycle = ActivityLifecycle()
   private var activityTimeout: TimeInterval = 5
+  private var keepaliveInterval: TimeInterval = 5
+  private var activityTimeouts: [UUID: TimeInterval] = [:]
   private var defaultAnimation = "nyathing_36x36.png"
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
@@ -252,6 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
       activityTimeout = configuration.activityTimeout
+      keepaliveInterval = configuration.keepaliveInterval
       defaultAnimation = configuration.defaultAnimation
       try startAPIServer()
     } catch {
@@ -274,10 +277,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let generation = apiGeneration
     apiServer = LocalAPIServer(
       defaultAnimation: defaultAnimation,
-      onStart: { [weak self] filename, description in
+      defaultKeepaliveInterval: keepaliveInterval,
+      defaultActivityTimeout: activityTimeout,
+      onStart: { [weak self] filename, description, _, timeout in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
-          return self.startActivity(animation: filename, description: description).uuidString
+          return self.startActivity(
+            animation: filename, description: description, activityTimeout: timeout
+          ).uuidString
         }
       },
       onKeepalive: { [weak self] activityID in
@@ -316,11 +323,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// Begins an activity for a named animation, sharing its status item with matching activities.
   @discardableResult
-  func startActivity(animation filename: String, description: String? = nil) -> UUID {
-    let deadline = DispatchTime.now() + activityTimeout
+  func startActivity(
+    animation filename: String, description: String? = nil,
+    activityTimeout timeout: TimeInterval? = nil
+  ) -> UUID {
+    let timeout = timeout ?? activityTimeout
+    let deadline = DispatchTime.now() + timeout
     let deadlineUptime = deadline.uptimeNanoseconds
     let id = lifecycle.start(
       animation: filename, description: description, deadline: deadlineUptime)
+    activityTimeouts[id] = timeout
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
     if let active = activeAnimations[filename] {
       active.activityIDs.insert(id)
@@ -351,6 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Ends an activity without counting it as a disconnect.
   func stopActivity(_ id: UUID) {
     guard let filename = lifecycle.stop(id) else { return }
+    activityTimeouts.removeValue(forKey: id)
     removeActivityFromStatusItem(id, animation: filename)
   }
 
@@ -417,7 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func keepaliveActivity(_ id: UUID) -> Bool {
-    let deadline = DispatchTime.now() + activityTimeout
+    let deadline = DispatchTime.now() + (activityTimeouts[id] ?? activityTimeout)
     let deadlineUptime = deadline.uptimeNanoseconds
     guard lifecycle.keepalive(id, deadline: deadlineUptime) else { return false }
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
@@ -447,6 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
     guard let expired = lifecycle.expire(id, deadline: deadlineUptime) else { return }
+    activityTimeouts.removeValue(forKey: id)
     removeActivityFromStatusItem(id, animation: expired.animation)
     presentActivityTimeout()
   }

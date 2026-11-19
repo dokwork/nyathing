@@ -64,7 +64,10 @@ connect at the same time. Request lines are limited to 1 MiB.
 Commands:
 
 - Start an activity: `{"command":"start","animation":"nyan_54x36.png"}`
-  returns `{"ok":true,"activity_id":"…"}`. The animation is identified by
+  returns `{"ok":true,"activity_id":"…"}`. Optional
+  `keepalive_interval_seconds` and `activity_timeout_seconds` fields override
+  the corresponding `config.toml` defaults for this activity; both must be
+  positive numbers. The animation is identified by
   its filename. The `animation` field is optional; when omitted, Nyathing uses
   the animation selected by `default_animation` in `config.toml`. If a
   requested animation is unavailable or invalid, Nyathing uses the built-in

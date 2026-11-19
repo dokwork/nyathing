@@ -145,6 +145,8 @@ enum NyathingCLI {
       "command": "start",
       "animation": animation,
       "description": activityDescription(command: cli.command, arguments: cli.arguments),
+      "keepalive_interval_seconds": String(configuration.keepaliveInterval),
+      "activity_timeout_seconds": String(configuration.activityTimeout),
     ])
     guard let activityID = activity["activity_id"] as? String else {
       throw CLIError.api("The server returned an invalid activity response.")
