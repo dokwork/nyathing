@@ -43,7 +43,10 @@ struct CLIArguments {
       Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
       ?? "Development build"
     return """
-      Nyathing \(version) displays playful animations in the macOS menu bar while commands run.
+      Nyathing displays playful animations in the macOS menu bar while commands run.
+
+      Version:
+        \(version)
 
       Usage:
         nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]

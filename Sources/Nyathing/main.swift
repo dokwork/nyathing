@@ -76,9 +76,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     animationTimer?.invalidate()
     apiGeneration += 1
     apiServer?.stop()
-    for active in activeAnimations.values {
-      NSStatusBar.system.removeStatusItem(active.statusItem)
-    }
   }
 
   private func configureMenu(for item: NSStatusItem) {
@@ -311,9 +308,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func clearRuntimeState() {
-    for active in activeAnimations.values {
-      NSStatusBar.system.removeStatusItem(active.statusItem)
-    }
     activeAnimations.removeAll()
     lifecycle.reset()
     updateMainStatusItemVisibility()
@@ -350,7 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .asset(let animation): frames = animation.frames
     case .builtInGhost: frames = Self.builtInGhostFrames()
     }
-    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    guard let statusItem = mainStatusItem else { return id }
     let active = ActiveAnimation(
       filename: filename, statusItem: statusItem, frames: frames, activityIDs: [id])
     activeAnimations[filename] = active
@@ -371,9 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let active = activeAnimations[filename] else { return }
     active.activityIDs.remove(id)
     if active.activityIDs.isEmpty {
-      NSStatusBar.system.removeStatusItem(active.statusItem)
       activeAnimations.removeValue(forKey: filename)
       updateMainStatusItemVisibility()
+      updateMainStatusItem()
     } else {
       updateActivityStatus(active)
     }
@@ -485,6 +479,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         systemSymbolName: "exclamationmark.triangle.fill",
         accessibilityDescription: "Outstanding timeout errors")
       button.title = "\(outstandingErrorCount)"
+    } else if let active = activeAnimations.values.first {
+      updateActivityStatus(active)
     } else {
       button.image =
         staticAppIcon
