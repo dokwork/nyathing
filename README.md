@@ -105,7 +105,7 @@ Without `--animation`, the CLI uses `nyathing_36x36.png`, regardless of the
 configured server default.
 
 Set `--animation` to `random` to choose a random valid animation from the user
-animations directory for that run. 
+animations directory for that run.
 
 If a valid `random_36x36.png` or `random_54x36.png` exists, Nyathing plays that
 named animation, preferring `54x36` when both are available. Otherwise, it
@@ -131,6 +131,29 @@ To view available options or check the installed version:
   nyathing --help
   nyathing --version
 ```
+
+## Shell completion
+
+Nyathing can generate completion scripts for Zsh and Bash. Add the appropriate
+command to your shell configuration file to enable completion in new shells.
+
+For Zsh, add this to `~/.zshrc`:
+
+```sh
+  autoload -Uz compinit
+  compinit
+  eval "$(nyathing completion zsh)"
+```
+
+For Bash, add this to `~/.bashrc`:
+
+```sh
+  eval "$(nyathing completion bash)"
+```
+
+The completion script offers Nyathing commands and options, including server
+subcommands. It fetches available animations with `nyathing list` when
+completing an animation argument, so the suggestions reflect installed files.
 
 ## Animation file format
 

@@ -115,6 +115,43 @@ final class CLITests: XCTestCase {
     XCTAssertEqual(NyathingCLI.keepaliveInterval(for: shorterConfiguredInterval), 0.2)
   }
 
+  func testZshCompletionTracksCLICommandsAndDynamicAnimations() throws {
+    let script = try XCTUnwrap(ShellCompletion.script(for: "zsh"))
+
+    for command in documentedCLICommands {
+      XCTAssertTrue(script.contains(command))
+    }
+    XCTAssertTrue(script.contains("nyathing list"))
+    XCTAssertTrue(script.contains("start stop status"))
+    XCTAssertTrue(script.contains("compadd -- zsh bash"))
+  }
+
+  func testBashCompletionTracksCLICommandsAndDynamicAnimations() throws {
+    let script = try XCTUnwrap(ShellCompletion.script(for: "bash"))
+
+    for command in documentedCLICommands {
+      XCTAssertTrue(script.contains(command))
+    }
+    XCTAssertTrue(script.contains("nyathing list"))
+    XCTAssertTrue(script.contains("start stop status"))
+    XCTAssertTrue(script.contains("zsh bash"))
+  }
+
+  func testCompletionRejectsUnsupportedShells() {
+    XCTAssertNil(ShellCompletion.script(for: "fish"))
+  }
+
+  private var documentedCLICommands: [String] {
+    let commandsSection =
+      CLIArguments.usage
+      .components(separatedBy: "Commands:\n").last?
+      .components(separatedBy: "\n\nOptions:").first ?? ""
+    return commandsSection.split(separator: "\n").compactMap { line in
+      let command = line.split(whereSeparator: \.isWhitespace).first.map(String.init)
+      return command == "COMMAND" ? nil : command
+    }
+  }
+
   func testHelpAndVersionAreOnlyAvailableAsOptions() throws {
     XCTAssertEqual(try CLIArguments.parse(["help"]).command, "help")
     XCTAssertEqual(try CLIArguments.parse(["version"]).command, "version")

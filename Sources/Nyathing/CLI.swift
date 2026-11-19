@@ -53,6 +53,7 @@ struct CLIArguments {
         nyathing uninstall
         nyathing server start|stop|status
         nyathing list
+        nyathing completion zsh|bash
         nyathing --help
         nyathing --version
 
@@ -61,6 +62,7 @@ struct CLIArguments {
         uninstall               Remove the installed app and CLI command.
         server                  Manage the background server (start, stop, status).
         list                    List available valid animations.
+        completion SHELL        Print shell completion code for zsh or bash.
 
       Options:
         -a, --animation FILE    Select an animation from the user animations folder.
@@ -109,6 +111,14 @@ enum NyathingCLI {
   static func run(_ arguments: [String]) -> Int32 {
     if arguments == ["uninstall"] {
       return NyathingUninstaller.run()
+    }
+    if arguments.count == 2, arguments[0] == "completion" {
+      guard let script = ShellCompletion.script(for: arguments[1]) else {
+        FileHandle.standardError.write(Data("Supported shells: zsh, bash\\n".utf8))
+        return 1
+      }
+      print(script, terminator: "")
+      return 0
     }
     if arguments.isEmpty || arguments == ["--help"] {
       print(CLIArguments.usage)
@@ -300,6 +310,80 @@ enum NyathingCLI {
     throw NSError(
       domain: NSPOSIXErrorDomain, code: Int(ENOENT),
       userInfo: [NSLocalizedDescriptionKey: "Command not found: \(command)"])
+  }
+}
+
+enum ShellCompletion {
+  static let supportedCommands = ["server", "list", "uninstall", "completion"]
+
+  static func script(for shell: String) -> String? {
+    let commands = supportedCommands.joined(separator: " ")
+    switch shell {
+    case "zsh":
+      return #"""
+        #compdef nyathing
+
+        _nyathing() {
+          local -a commands animations
+          commands=(\#(commands))
+
+          case "${words[CURRENT-1]}" in
+            -a|--animation)
+              animations=(random ${(f)"$(nyathing list 2>/dev/null)"})
+              compadd -- "${animations[@]}"
+              return
+              ;;
+            server)
+              compadd -- start stop status
+              return
+              ;;
+            completion)
+              compadd -- zsh bash
+              return
+              ;;
+          esac
+
+          if (( CURRENT == 2 )); then
+            compadd -- "${commands[@]}" --animation -a --help --version
+          fi
+        }
+
+        compdef _nyathing nyathing
+        """#
+    case "bash":
+      return #"""
+        _nyathing() {
+          local cur prev animations
+          COMPREPLY=()
+          cur="${COMP_WORDS[COMP_CWORD]}"
+          prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+          case "$prev" in
+            -a|--animation)
+              animations="$(nyathing list 2>/dev/null)"
+              COMPREPLY=( $(compgen -W "random $animations" -- "$cur") )
+              return
+              ;;
+            server)
+              COMPREPLY=( $(compgen -W "start stop status" -- "$cur") )
+              return
+              ;;
+            completion)
+              COMPREPLY=( $(compgen -W "zsh bash" -- "$cur") )
+              return
+              ;;
+          esac
+
+          if (( COMP_CWORD == 1 )); then
+            COMPREPLY=( $(compgen -W "\#(commands)" -- "$cur") )
+            COMPREPLY+=( $(compgen -W "--animation -a --help --version" -- "$cur") )
+          fi
+        }
+        complete -F _nyathing nyathing
+        """#
+    default:
+      return nil
+    }
   }
 }
 

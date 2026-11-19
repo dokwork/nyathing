@@ -339,7 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let directory = AppConfiguration.configurationDirectory.appendingPathComponent(
       "animations", isDirectory: true)
     let animations = SpriteAnimation.loadAll(in: directory)
-    let resolvedFilename = filename == "random"
+    let resolvedFilename =
+      filename == "random"
       ? (try? NyathingCLI.resolveAnimation(filename, in: directory)) ?? filename
       : filename
     let timeout = timeout ?? activityTimeout
