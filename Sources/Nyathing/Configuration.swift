@@ -15,7 +15,7 @@ struct AppConfiguration {
     activity_timeout_seconds = 30
     # Whether Nyathing should launch automatically when you log in.
     auto_start = false
-    # Animation filename used when a client omits the animation field.
+    # Animation filename (or "random") used when a client omits the animation field.
     default_animation = "nyathing_36x36.png"
     """
 
@@ -152,12 +152,14 @@ struct AppConfiguration {
       throw ConfigError.invalidValue("default_animation")
     }
     let defaultAnimation = String(rawAnimation.dropFirst().dropLast())
-    guard !defaultAnimation.contains("/"), !defaultAnimation.contains("\\"),
-      (try? SpriteAnimation.load(
-        from: animationsDirectory.appendingPathComponent(
-          defaultAnimation))) != nil
-    else {
-      throw ConfigError.invalidValue("default_animation")
+    if defaultAnimation != "random" {
+      guard !defaultAnimation.contains("/"), !defaultAnimation.contains("\\"),
+        (try? SpriteAnimation.load(
+          from: animationsDirectory.appendingPathComponent(
+            defaultAnimation))) != nil
+      else {
+        throw ConfigError.invalidValue("default_animation")
+      }
     }
     return AppConfiguration(
       keepaliveInterval: try number("keepalive_interval_seconds"),

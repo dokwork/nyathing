@@ -224,6 +224,17 @@ final class ConfigurationTests: XCTestCase {
     XCTAssertEqual(matrix.frames.count, 16)
   }
 
+  func testRandomIsAcceptedAsDefaultAnimation() throws {
+    let configurationText = AppConfiguration.template.replacingOccurrences(
+      of: "default_animation = \"nyathing_36x36.png\"",
+      with: "default_animation = \"random\"")
+    try writeConfiguration(configurationText)
+
+    let configuration = try AppConfiguration.load(in: temporaryDirectory)
+
+    XCTAssertEqual(configuration.defaultAnimation, "random")
+  }
+
   func testRemovesObsoleteIconSettingAndKeepsDefaultAnimation() throws {
     let oldTemplate = AppConfiguration.template
       .replacingOccurrences(

@@ -172,20 +172,22 @@ keepalive_interval_seconds = 5
 activity_timeout_seconds = 30
 # Whether to launch Nyathing automatically when you log in.
 auto_start = false
-# Animation filename used when a client omits the animation field.
+# Animation filename (or "random") used when a client omits the animation field.
 default_animation = "nyathing_36x36.png"
 ```
 
 Keep all four settings in your `config.toml`; Nyathing does not fill in omitted
 settings. Set `auto_start` to `true` or `false`; both durations must be positive
 numbers, and `keepalive_interval_seconds` must be less than
-`activity_timeout_seconds`. Set `default_animation` to the filename of a valid
-animation in the `animations/` directory. Requests with an explicit animation
-use it; missing or unavailable requested animations fall back to the built-in
-ghost.
-Use **Reload Configuration and Animations** in the menu after changing
-configuration or animation files. Reload clears active client activities and
-the disconnected-client count.
+`activity_timeout_seconds`. Set `default_animation` to a valid filename in
+`animations/` or to `random` to select a random valid animation per activity.
+Requests with an explicit animation use it; missing or unavailable requested
+animations fall back to the built-in ghost.
+Choose **Edit Configuration** from the menu to change these settings with
+visual controls. **Accept** saves the configuration and reloads settings and
+animations; this also clears active activities and the disconnected-client
+count. **Cancel** closes the editor without applying changes. Accepting the
+current settings also reloads animation files changed outside the editor.
 
 ## {} Server communication protocol
 
@@ -317,14 +319,15 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
 
 ## Launch at login
 
-Set `auto_start = true` in `config.toml`, then choose **Reload Configuration and
-Animations** from Nyathing's menu. Nyathing installs its own LaunchAgent in
+In the **Edit Configuration** window, enable **Launch Nyathing at login** and
+click **Accept**. Nyathing installs its own LaunchAgent in
 `~/Library/LaunchAgents`; it will start automatically at your next login. No
 manual `launchctl` commands are needed.
 
-Set `auto_start = false` and reload to remove the LaunchAgent. If you move
-`Nyathing.app`, enable auto-start again and reload so the LaunchAgent records
-the app's new location.
+Disable **Launch Nyathing at login** in **Edit Configuration** and click
+**Accept** to remove the LaunchAgent. If you move
+`Nyathing.app`, enable auto-start again and click **Accept** so the LaunchAgent
+records the app's new location.
 
 ## ⚡︎ Troubleshooting
 
@@ -332,10 +335,10 @@ Startup and runtime diagnostics are written to
 `$XDG_STATE_HOME/nyathing/nyathing.log`, or
 `~/.local/state/nyathing/nyathing.log` when `XDG_STATE_HOME` is unset. Startup
 errors show an alert with an **Open Log** button. Configuration errors also
-offer **Open Configuration**; animation errors offer **Open Animations Folder**.
+offer **Open Configuration**. Invalid animation files are logged and ignored.
 If the socket path is already in use, quit the existing instance before
-launching another. Invalid animation files are reported in the log; correct
-them and reload.
+launching another. After correcting animation files, click **Accept** in the
+**Edit Configuration** window to reload them.
 
 ## ⚒ Build from source
 

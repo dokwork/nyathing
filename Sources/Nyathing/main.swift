@@ -25,7 +25,7 @@ private func runNyathingApplication(serverMode: Bool) {
   application.run()
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private let serverMode: Bool
 
   init(serverMode: Bool = false) {
@@ -53,6 +53,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var apiGeneration = 0
   private var errorsWindow: NSWindow?
   private var errorsStackView: NSStackView?
+  private var configurationWindow: NSWindow?
+  private var keepaliveIntervalField: NSTextField?
+  private var activityTimeoutField: NSTextField?
+  private var autoStartCheckbox: NSButton?
+  private var defaultAnimationPicker: NSPopUpButton?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -89,10 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         withTitle: "View Errors", action: #selector(viewErrors), keyEquivalent: "")
     }
     menu.addItem(
-      withTitle: "Reload Configuration and Animations", action: #selector(reloadFromMenu),
-      keyEquivalent: "")
-    menu.addItem(
-      withTitle: "Open Configuration", action: #selector(openConfiguration), keyEquivalent: "")
+      withTitle: "Edit Configuration", action: #selector(editConfiguration), keyEquivalent: "")
     menu.addItem(.separator())
     menu.addItem(withTitle: "About", action: #selector(showAbout), keyEquivalent: "")
     menu.addItem(.separator())
@@ -108,8 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let font = NSFont.menuFont(ofSize: 0)
     let widestActionTitle =
       [
-        "View Errors", "Reload Configuration and Animations",
-        "Open Configuration", "About", "Quit",
+        "View Errors", "Edit Configuration", "About", "Quit",
       ].map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
     let iconColumnWidth: CGFloat = 16
     let horizontalMenuPadding: CGFloat = 16
@@ -277,20 +278,173 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  @objc private func reloadFromMenu() {
+  @objc private func editConfiguration() {
+    if let configurationWindow {
+      configurationWindow.makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
+      return
+    }
+
+    let configuration: AppConfiguration
+    do {
+      configuration = try AppConfiguration.load()
+    } catch {
+      showConfigurationEditorError(error.localizedDescription)
+      return
+    }
+
+    let animationDirectory = AppConfiguration.configurationDirectory
+      .appendingPathComponent("animations", isDirectory: true)
+    let animationNames = ["random"] + SpriteAnimation.loadAll(in: animationDirectory).keys.sorted()
+    guard !animationNames.isEmpty else {
+      showConfigurationEditorError("No valid animations are available.")
+      return
+    }
+
+    let intervalField = NSTextField(string: String(configuration.keepaliveInterval))
+    let timeoutField = NSTextField(string: String(configuration.activityTimeout))
+    intervalField.placeholderString = "Seconds"
+    timeoutField.placeholderString = "Seconds"
+    intervalField.alignment = .right
+    timeoutField.alignment = .right
+    intervalField.widthAnchor.constraint(equalToConstant: 130).isActive = true
+    timeoutField.widthAnchor.constraint(equalToConstant: 130).isActive = true
+
+    let animationPicker = NSPopUpButton()
+    animationPicker.addItems(withTitles: animationNames)
+    animationPicker.selectItem(withTitle: configuration.defaultAnimation)
+
+    let autoStart = NSButton(
+      checkboxWithTitle: "Launch Nyathing at login", target: self, action: nil)
+    autoStart.state = configuration.autoStart ? .on : .off
+
+    func row(_ title: String, control: NSView) -> NSStackView {
+      let label = NSTextField(labelWithString: title)
+      label.widthAnchor.constraint(equalToConstant: 190).isActive = true
+      let row = NSStackView(views: [label, control])
+      row.orientation = .horizontal
+      row.alignment = .centerY
+      row.spacing = 12
+      return row
+    }
+
+    let fields = NSStackView(views: [
+      row("Keepalive interval (seconds)", control: intervalField),
+      row("Activity timeout (seconds)", control: timeoutField),
+      row("Default animation", control: animationPicker),
+      autoStart,
+    ])
+    fields.orientation = .vertical
+    fields.alignment = .leading
+    fields.spacing = 14
+    fields.translatesAutoresizingMaskIntoConstraints = false
+
+    let cancelButton = NSButton(
+      title: "Cancel", target: self, action: #selector(cancelConfigurationEdit))
+    let acceptButton = NSButton(
+      title: "Accept", target: self, action: #selector(acceptConfigurationEdit))
+    acceptButton.keyEquivalent = "\\r"
+    let buttons = NSStackView(views: [cancelButton, acceptButton])
+    buttons.orientation = .horizontal
+    buttons.alignment = .centerY
+    buttons.spacing = 8
+    buttons.translatesAutoresizingMaskIntoConstraints = false
+
+    let content = NSView()
+    content.addSubview(fields)
+    content.addSubview(buttons)
+    NSLayoutConstraint.activate([
+      fields.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+      fields.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
+      fields.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+      buttons.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
+      buttons.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
+      fields.bottomAnchor.constraint(lessThanOrEqualTo: buttons.topAnchor, constant: -18),
+    ])
+
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 430, height: 230),
+      styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    window.title = "Edit Configuration"
+    window.isReleasedWhenClosed = false
+    window.delegate = self
+    window.contentView = content
+    configurationWindow = window
+    keepaliveIntervalField = intervalField
+    activityTimeoutField = timeoutField
+    autoStartCheckbox = autoStart
+    defaultAnimationPicker = animationPicker
+    window.center()
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  @objc private func cancelConfigurationEdit() {
+    configurationWindow?.close()
+  }
+
+  @objc private func acceptConfigurationEdit() {
+    guard let intervalField = keepaliveIntervalField,
+      let timeoutField = activityTimeoutField,
+      let autoStartCheckbox,
+      let defaultAnimationPicker,
+      let animation = defaultAnimationPicker.titleOfSelectedItem
+    else { return }
+
+    guard let interval = Double(intervalField.stringValue), interval.isFinite, interval > 0 else {
+      showConfigurationEditorError("Keepalive interval must be a positive finite number.")
+      return
+    }
+    guard let timeout = Double(timeoutField.stringValue), timeout.isFinite, timeout > 0 else {
+      showConfigurationEditorError("Activity timeout must be a positive finite number.")
+      return
+    }
+    guard interval < timeout else {
+      showConfigurationEditorError(
+        "Keepalive interval must be less than the activity timeout.")
+      return
+    }
+
+    let configurationText = """
+      # Seconds between client keepalive messages; must be less than the server timeout.
+      keepalive_interval_seconds = \(interval)
+      # Server-side seconds without a keepalive before an activity expires.
+      activity_timeout_seconds = \(timeout)
+      # Whether Nyathing should launch automatically when you log in.
+      auto_start = \(autoStartCheckbox.state == .on ? "true" : "false")
+      # Animation filename used when a client omits the animation field.
+      default_animation = "\(animation)"
+      """
+
+    let configurationURL = AppConfiguration.configurationDirectory
+      .appendingPathComponent("config.toml")
+    do {
+      try configurationText.write(to: configurationURL, atomically: true, encoding: .utf8)
+    } catch {
+      showConfigurationEditorError(error.localizedDescription)
+      return
+    }
+
+    configurationWindow?.close()
     reloadConfigurationAndAnimations()
   }
 
-  @objc private func openConfiguration() {
-    let url = AppConfiguration.configurationDirectory.appendingPathComponent("config.toml")
-    guard NSWorkspace.shared.open(url) else {
-      NyathingLog.report(
-        NSError(
-          domain: "Nyathing", code: 1,
-          userInfo: [NSLocalizedDescriptionKey: "Unable to open configuration at \(url.path)"]),
-        context: "Unable to open configuration")
-      return
-    }
+  private func showConfigurationEditorError(_ message: String) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Unable to Apply Configuration"
+    alert.informativeText = message
+    alert.addButton(withTitle: "OK")
+    alert.runModal()
+  }
+
+  func windowWillClose(_ notification: Notification) {
+    guard (notification.object as? NSWindow) === configurationWindow else { return }
+    configurationWindow = nil
+    keepaliveIntervalField = nil
+    activityTimeoutField = nil
+    autoStartCheckbox = nil
+    defaultAnimationPicker = nil
   }
 
   private func reloadConfigurationAndAnimations() {
