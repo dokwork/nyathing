@@ -169,21 +169,20 @@ your files.
 The complete initial configuration is:
 
 ```toml
-# Default interval at which clients send keepalives; must be less than the server timeout.
-keepalive_interval_seconds = 5
-# Server-side seconds without a keepalive before an activity expires.
-activity_timeout_seconds = 30
+# Maximum seconds to wait since the last client keepalive.
+max_wait_time = 60
 # Whether to launch Nyathing automatically when you log in.
 auto_start = false
 # Animation filename (or "random") used when a client omits the animation field.
 default_animation = "nyathing_36x36.png"
 ```
 
-Keep all four settings in your `config.toml`; Nyathing does not fill in omitted
-settings. Set `auto_start` to `true` or `false`; both durations must be positive
-numbers, and `keepalive_interval_seconds` must be less than
-`activity_timeout_seconds`. Set `default_animation` to a valid filename in
-`animations/` or to `random` to select a random valid animation per activity.
+Keep all three settings in your `config.toml`; Nyathing does not fill in omitted
+settings. Set `max_wait_time` to a positive number of seconds and `auto_start`
+to `true` or `false`. Clients use a default keepalive interval of 5 seconds,
+which they can override per activity. Activities expire after the smaller of
+twice that interval and `max_wait_time`. Set `default_animation` to a valid
+filename in `animations/` or to `random` to select a random animation per activity.
 Requests with an explicit animation use it; missing or unavailable requested
 animations fall back to the built-in ghost.
 Choose **Edit Configuration** from the menu to change these settings with
@@ -227,7 +226,7 @@ messages are supported:
 | `command` | string | Yes | Must be `start`. |
 | `animation` | string | No | Short name searched in the server's animation directory, or a path to a PNG sprite sheet. Defaults to the server's configured animation. Invalid explicit values return an error. |
 | `description` | string | No | Description shown for the activity. If omitted or not a string, the server uses its default description. |
-| `keepalive_interval_seconds` | number | Yes | Positive, finite interval in seconds at which the client sends keepalives. Must be less than the server's configured `activity_timeout_seconds`. |
+| `keepalive_interval_seconds` | number | No | Positive, finite interval in seconds at which the client promises to send keepalives. Defaults to 5 seconds. The activity expires after the smaller of twice this interval and the server's configured `max_wait_time`. |
 
 A short name without a frame-size suffix or `.png` is resolved in the server's
 animation directory. Other values are treated as file paths; relative paths
@@ -258,9 +257,9 @@ Example:
 {"command":"keepalive","activity_id":"<activity-id>"}
 ```
 
-Send keepalives periodically, typically at the interval specified in the
-`start` request. If the server does not receive one within the configured
-`activity_timeout_seconds`, the activity expires and increments the
+Send keepalives periodically at the interval specified in the `start` request.
+If the server does not receive one within the smaller of twice that interval
+and `max_wait_time`, the activity expires and increments the
 disconnected-client count.
 
 #### `stop` request
@@ -297,11 +296,10 @@ A failed request returns an error response:
 ```
 
 Errors include malformed requests, unknown commands or activity identifiers,
-missing or invalid keepalive intervals, intervals not shorter than the server
-timeout, per-activity timeout overrides, and oversized request lines. An
-activity expires if the server does not receive a keepalive within its
-configured timeout. Expiration increments the disconnected-client count; an explicit
-`stop` does not.
+invalid keepalive intervals, per-activity timeout overrides, and oversized
+request lines. An activity expires after the smaller of twice its keepalive
+interval and the configured `max_wait_time`. Expiration increments the
+disconnected-client count; an explicit `stop` does not.
 
 ## ✦ Minimal Python client example
 

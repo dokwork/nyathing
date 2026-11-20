@@ -48,10 +48,6 @@ def configured_value(text, key, default):
     return match.group(2) if match else default
 
 
-def configured_seconds(text, key, default):
-    match = re.search(rf"^\s*{re.escape(key)}\s*=\s*([0-9.]+)", text, re.M)
-    return float(match.group(1)) if match else default
-
 
 app = None
 started_here = False
@@ -71,8 +67,7 @@ try:
             time.sleep(0.2)
 
     settings = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    interval = configured_seconds(settings, "keepalive_interval_seconds", 5.0)
-    timeout = configured_seconds(settings, "activity_timeout_seconds", 30.0)
+    interval = 5.0
     animations = os.environ.get("ANIMATIONS", "").replace(",", " ").split()
     if not animations:
         animation = os.environ.get("ANIMATION")

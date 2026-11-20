@@ -3,16 +3,13 @@ import Foundation
 import ImageIO
 
 struct AppConfiguration {
-  let keepaliveInterval: TimeInterval
-  let activityTimeout: TimeInterval
+  let maxWaitTime: TimeInterval
   let autoStart: Bool
   let defaultAnimation: String
 
   static let template = """
-    # Seconds between client keepalive messages; must be greater than zero.
-    keepalive_interval_seconds = 5
-    # Server-side seconds without a keepalive before an activity expires.
-    activity_timeout_seconds = 30
+    # Maximum seconds to wait since the last client keepalive.
+    max_wait_time = 60
     # Whether Nyathing should launch automatically when you log in.
     auto_start = false
     # Animation filename (or "random") used when a client omits the animation field.
@@ -81,6 +78,7 @@ struct AppConfiguration {
     }
     var text = try String(contentsOf: configURL, encoding: .utf8)
     var removedObsoleteSettings = false
+    var legacyMaxWaitTime: String?
     let obsoleteComments = [
       "# Animate the app's icon instead of showing the static project logo.",
       "# Animate the app's main icon instead of showing the static logo.",
@@ -95,6 +93,16 @@ struct AppConfiguration {
       let line = stripComment(from: rawLine).trimmingCharacters(in: .whitespaces)
       guard let equal = line.firstIndex(of: "=") else { return original }
       let key = line[..<equal].trimmingCharacters(in: .whitespaces)
+      if key == "keepalive_interval_seconds" {
+        removedObsoleteSettings = true
+        if legacyMaxWaitTime == nil { legacyMaxWaitTime = "60" }
+        return nil
+      }
+      if key == "activity_timeout_seconds" {
+        removedObsoleteSettings = true
+        legacyMaxWaitTime = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
+        return nil
+      }
       if key == "animate_icon" {
         removedObsoleteSettings = true
         return nil
@@ -110,6 +118,13 @@ struct AppConfiguration {
     }
     if removedObsoleteSettings {
       text = retainedLines.joined(separator: "\n")
+      if let legacyMaxWaitTime,
+        !text.split(separator: "\n").contains(where: {
+          stripComment(from: $0).trimmingCharacters(in: .whitespaces).hasPrefix("max_wait_time")
+        })
+      {
+        text += "\nmax_wait_time = \(legacyMaxWaitTime)\n"
+      }
       try text.write(to: configURL, atomically: true, encoding: .utf8)
     }
     var values: [String: String] = [:]
@@ -125,8 +140,7 @@ struct AppConfiguration {
       let value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
       guard
         [
-          "keepalive_interval_seconds", "activity_timeout_seconds", "auto_start",
-          "default_animation",
+          "max_wait_time", "auto_start", "default_animation",
         ].contains(key),
         values[key] == nil
       else { throw ConfigError.invalidKey(key, offset + 1) }
@@ -162,8 +176,7 @@ struct AppConfiguration {
       }
     }
     return AppConfiguration(
-      keepaliveInterval: try number("keepalive_interval_seconds"),
-      activityTimeout: try number("activity_timeout_seconds"),
+      maxWaitTime: try number("max_wait_time"),
       autoStart: rawAuto == "true",
       defaultAnimation: defaultAnimation)
   }
@@ -184,7 +197,7 @@ enum ConfigError: LocalizedError {
         "Unknown or duplicate setting '\(key)' on line \(line). Use each supported setting once."
     case .invalidValue(let key):
       switch key {
-      case "keepalive_interval_seconds", "activity_timeout_seconds":
+      case "max_wait_time":
         return "Missing or invalid '\(key)'. Add it to config.toml as a positive number of seconds."
       case "auto_start":
         return

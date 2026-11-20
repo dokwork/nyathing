@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   }()
   private var activeAnimations: [String: ActiveAnimation] = [:]
   private var lifecycle = ActivityLifecycle()
-  private var activityTimeout: TimeInterval = 30
+  private var maxWaitTime: TimeInterval = 60
   private var activityTimeouts: [UUID: TimeInterval] = [:]
   private var activityStartOrder: [UUID: UInt64] = [:]
   private var nextActivityStartOrder: UInt64 = 0
@@ -54,8 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private var errorsWindow: NSWindow?
   private var errorsStackView: NSStackView?
   private var configurationWindow: NSWindow?
-  private var keepaliveIntervalField: NSTextField?
-  private var activityTimeoutField: NSTextField?
+  private var maxWaitTimeField: NSTextField?
   private var autoStartCheckbox: NSButton?
   private var defaultAnimationPicker: NSPopUpButton?
 
@@ -301,14 +300,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       return
     }
 
-    let intervalField = NSTextField(string: String(configuration.keepaliveInterval))
-    let timeoutField = NSTextField(string: String(configuration.activityTimeout))
-    intervalField.placeholderString = "Seconds"
-    timeoutField.placeholderString = "Seconds"
-    intervalField.alignment = .right
-    timeoutField.alignment = .right
-    intervalField.widthAnchor.constraint(equalToConstant: 130).isActive = true
-    timeoutField.widthAnchor.constraint(equalToConstant: 130).isActive = true
+    let maxWaitTimeField = NSTextField(string: String(configuration.maxWaitTime))
+    maxWaitTimeField.placeholderString = "Seconds"
+    maxWaitTimeField.alignment = .right
+    maxWaitTimeField.widthAnchor.constraint(equalToConstant: 130).isActive = true
 
     let animationPicker = NSPopUpButton()
     animationPicker.addItems(withTitles: animationNames)
@@ -329,8 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     let fields = NSStackView(views: [
-      row("Keepalive interval (seconds)", control: intervalField),
-      row("Activity timeout (seconds)", control: timeoutField),
+      row("Maximum wait time (seconds)", control: maxWaitTimeField),
       row("Default animation", control: animationPicker),
       autoStart,
     ])
@@ -370,8 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     window.delegate = self
     window.contentView = content
     configurationWindow = window
-    keepaliveIntervalField = intervalField
-    activityTimeoutField = timeoutField
+    self.maxWaitTimeField = maxWaitTimeField
     autoStartCheckbox = autoStart
     defaultAnimationPicker = animationPicker
     window.center()
@@ -384,32 +377,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   }
 
   @objc private func acceptConfigurationEdit() {
-    guard let intervalField = keepaliveIntervalField,
-      let timeoutField = activityTimeoutField,
+    guard let maxWaitTimeField,
       let autoStartCheckbox,
       let defaultAnimationPicker,
       let animation = defaultAnimationPicker.titleOfSelectedItem
     else { return }
 
-    guard let interval = Double(intervalField.stringValue), interval.isFinite, interval > 0 else {
-      showConfigurationEditorError("Keepalive interval must be a positive finite number.")
-      return
-    }
-    guard let timeout = Double(timeoutField.stringValue), timeout.isFinite, timeout > 0 else {
-      showConfigurationEditorError("Activity timeout must be a positive finite number.")
-      return
-    }
-    guard interval < timeout else {
-      showConfigurationEditorError(
-        "Keepalive interval must be less than the activity timeout.")
+    guard let maxWaitTime = Double(maxWaitTimeField.stringValue),
+      maxWaitTime.isFinite, maxWaitTime > 0
+    else {
+      showConfigurationEditorError("Maximum wait time must be a positive finite number.")
       return
     }
 
     let configurationText = """
-      # Seconds between client keepalive messages; must be less than the server timeout.
-      keepalive_interval_seconds = \(interval)
-      # Server-side seconds without a keepalive before an activity expires.
-      activity_timeout_seconds = \(timeout)
+      # Maximum seconds to wait since the last client keepalive.
+      max_wait_time = \(maxWaitTime)
       # Whether Nyathing should launch automatically when you log in.
       auto_start = \(autoStartCheckbox.state == .on ? "true" : "false")
       # Animation filename used when a client omits the animation field.
@@ -441,8 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   func windowWillClose(_ notification: Notification) {
     guard (notification.object as? NSWindow) === configurationWindow else { return }
     configurationWindow = nil
-    keepaliveIntervalField = nil
-    activityTimeoutField = nil
+    maxWaitTimeField = nil
     autoStartCheckbox = nil
     defaultAnimationPicker = nil
   }
@@ -464,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       } catch {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
-      activityTimeout = configuration.activityTimeout
+      maxWaitTime = configuration.maxWaitTime
       defaultAnimation = configuration.defaultAnimation
       try startAPIServer()
     } catch {
@@ -493,7 +475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       : animationsDirectory.appendingPathComponent(defaultAnimation).standardizedFileURL.path
     apiServer = LocalAPIServer(
       defaultAnimation: serverDefaultAnimation,
-      defaultActivityTimeout: activityTimeout,
+      maxWaitTime: maxWaitTime,
       onStart: { [weak self] filename, description, timeout in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
@@ -558,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       frames = nil
     }
 
-    let timeout = timeout ?? activityTimeout
+    let timeout = timeout ?? min(LocalAPIServer.defaultKeepaliveInterval * 2, maxWaitTime)
     let deadline = DispatchTime.now() + timeout
     let deadlineUptime = deadline.uptimeNanoseconds
     let id = lifecycle.start(
@@ -671,7 +653,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   }
 
   private func keepaliveActivity(_ id: UUID) -> Bool {
-    let deadline = DispatchTime.now() + (activityTimeouts[id] ?? activityTimeout)
+    let fallbackTimeout = min(LocalAPIServer.defaultKeepaliveInterval * 2, maxWaitTime)
+    let deadline = DispatchTime.now() + (activityTimeouts[id] ?? fallbackTimeout)
     let deadlineUptime = deadline.uptimeNanoseconds
     guard lifecycle.keepalive(id, deadline: deadlineUptime) else { return false }
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)

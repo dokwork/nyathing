@@ -3,8 +3,9 @@ import Foundation
 
 /// Serves the local JSON Lines API over a current-user Unix domain socket.
 final class LocalAPIServer {
+  static let defaultKeepaliveInterval: TimeInterval = 5
   private let defaultAnimation: String
-  private let defaultActivityTimeout: TimeInterval
+  private let maxWaitTime: TimeInterval
   private let onStart: (String, String?, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
   private let onStop: (String) throws -> Void
@@ -17,13 +18,13 @@ final class LocalAPIServer {
   init(
     socketPath: String = LocalAPIServer.socketPath,
     defaultAnimation: String = "nyathing_36x36.png",
-    defaultActivityTimeout: TimeInterval = 30,
+    maxWaitTime: TimeInterval = 60,
     onStart: @escaping (String, String?, TimeInterval) throws -> String,
     onKeepalive: @escaping (String) throws -> Void,
     onStop: @escaping (String) throws -> Void
   ) {
     self.defaultAnimation = defaultAnimation
-    self.defaultActivityTimeout = defaultActivityTimeout
+    self.maxWaitTime = maxWaitTime
     self.onStart = onStart
     self.onKeepalive = onKeepalive
     self.onStop = onStop
@@ -222,14 +223,13 @@ final class LocalAPIServer {
         guard request["activity_timeout_seconds"] == nil else {
           throw LocalAPIError.serverManagedActivityTimeout
         }
-        guard let rawKeepaliveInterval = request["keepalive_interval_seconds"] else {
-          throw LocalAPIError.missingKeepaliveInterval
+        let keepaliveInterval: TimeInterval
+        if let rawKeepaliveInterval = request["keepalive_interval_seconds"] {
+          keepaliveInterval = try positiveSeconds(rawKeepaliveInterval)
+        } else {
+          keepaliveInterval = Self.defaultKeepaliveInterval
         }
-        let keepaliveInterval = try positiveSeconds(rawKeepaliveInterval)
-        let activityTimeout = defaultActivityTimeout
-        guard keepaliveInterval < activityTimeout else {
-          throw LocalAPIError.keepaliveIntervalTooLong(keepaliveInterval, activityTimeout)
-        }
+        let activityTimeout = min(keepaliveInterval * 2, maxWaitTime)
         return [
           "ok": true,
           "activity_id": try onStart(
@@ -316,9 +316,7 @@ final class LocalAPIServer {
 enum LocalAPIError: LocalizedError {
   case unavailable
   case invalidRequest
-  case missingKeepaliveInterval
   case invalidKeepaliveInterval
-  case keepaliveIntervalTooLong(TimeInterval, TimeInterval)
   case serverManagedActivityTimeout
   case unknownCommand(String)
   case unknownActivity
@@ -330,13 +328,8 @@ enum LocalAPIError: LocalizedError {
     switch self {
     case .unavailable: return "The local API is unavailable."
     case .invalidRequest: return "Invalid JSON Lines request."
-    case .missingKeepaliveInterval:
-      return "Missing required field 'keepalive_interval_seconds'."
     case .invalidKeepaliveInterval:
       return "'keepalive_interval_seconds' must be a positive finite number of seconds."
-    case .keepaliveIntervalTooLong(let interval, let timeout):
-      return
-        "'keepalive_interval_seconds' (\(interval)) must be less than the server activity timeout (\(timeout) seconds)."
     case .serverManagedActivityTimeout:
       return
         "'activity_timeout_seconds' is controlled by the server and cannot be set per activity."

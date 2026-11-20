@@ -155,7 +155,9 @@ enum NyathingCLI {
         let directory = AppConfiguration.configurationDirectory
           .appendingPathComponent("animations", isDirectory: true)
         let names = SpriteAnimation.loadAll(in: directory).keys.compactMap { filename -> String? in
-          guard let separator = filename.range(of: #"_[0-9]+x[0-9]+\.png$"#, options: .regularExpression)
+          guard
+            let separator = filename.range(
+              of: #"_[0-9]+x[0-9]+\.png$"#, options: .regularExpression)
           else { return nil }
           return String(filename[..<separator.lowerBound])
         }
@@ -174,11 +176,11 @@ enum NyathingCLI {
 
   private static func execute(_ cli: CLIArguments) throws -> Int32 {
     let executable = try resolveExecutable(cli.command)
-    let configuration = try AppConfiguration.load()
+    _ = try AppConfiguration.load()
     let animationsDirectory = AppConfiguration.configurationDirectory
       .appendingPathComponent("animations", isDirectory: true)
     let animation = try resolveAnimation(cli.animation, in: animationsDirectory)
-    let keepaliveInterval = configuration.keepaliveInterval
+    let keepaliveInterval = LocalAPIServer.defaultKeepaliveInterval
     let client = try LocalAPIClient.connectOrStartServer()
     let activity = try client.command([
       "command": "start",
