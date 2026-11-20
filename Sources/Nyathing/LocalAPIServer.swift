@@ -4,7 +4,6 @@ import Foundation
 /// Serves the local JSON Lines API over a current-user Unix domain socket.
 final class LocalAPIServer {
   private let defaultAnimation: String
-  private let defaultKeepaliveInterval: TimeInterval
   private let defaultActivityTimeout: TimeInterval
   private let onStart: (String, String?, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
@@ -18,14 +17,12 @@ final class LocalAPIServer {
   init(
     socketPath: String = LocalAPIServer.socketPath,
     defaultAnimation: String = "nyathing_36x36.png",
-    defaultKeepaliveInterval: TimeInterval = 5,
-    defaultActivityTimeout: TimeInterval = 5,
+    defaultActivityTimeout: TimeInterval = 30,
     onStart: @escaping (String, String?, TimeInterval) throws -> String,
     onKeepalive: @escaping (String) throws -> Void,
     onStop: @escaping (String) throws -> Void
   ) {
     self.defaultAnimation = defaultAnimation
-    self.defaultKeepaliveInterval = defaultKeepaliveInterval
     self.defaultActivityTimeout = defaultActivityTimeout
     self.onStart = onStart
     self.onKeepalive = onKeepalive
@@ -222,16 +219,21 @@ final class LocalAPIServer {
       case "start":
         let animation = request["animation"] as? String ?? defaultAnimation
         guard !animation.isEmpty else { throw LocalAPIError.invalidRequest }
-        let keepaliveInterval = try seconds(
-          request["keepalive_interval_seconds"], default: defaultKeepaliveInterval)
-        let activityTimeout = try seconds(
-          request["activity_timeout_seconds"], default: defaultActivityTimeout)
-        let effectiveKeepaliveInterval = min(keepaliveInterval, activityTimeout / 2)
+        guard request["activity_timeout_seconds"] == nil else {
+          throw LocalAPIError.serverManagedActivityTimeout
+        }
+        guard let rawKeepaliveInterval = request["keepalive_interval_seconds"] else {
+          throw LocalAPIError.missingKeepaliveInterval
+        }
+        let keepaliveInterval = try positiveSeconds(rawKeepaliveInterval)
+        let activityTimeout = defaultActivityTimeout
+        guard keepaliveInterval < activityTimeout else {
+          throw LocalAPIError.keepaliveIntervalTooLong(keepaliveInterval, activityTimeout)
+        }
         return [
           "ok": true,
           "activity_id": try onStart(
             animation, request["description"] as? String, activityTimeout),
-          "keepalive_interval_seconds": effectiveKeepaliveInterval,
         ]
       case "keepalive":
         guard let activityID = request["activity_id"] as? String, !activityID.isEmpty else {
@@ -272,11 +274,10 @@ final class LocalAPIServer {
     }
   }
 
-  private func seconds(_ value: Any?, default fallback: TimeInterval) throws -> TimeInterval {
-    guard let value else { return fallback }
+  private func positiveSeconds(_ value: Any) throws -> TimeInterval {
     guard let number = value as? NSNumber, number.doubleValue.isFinite, number.doubleValue > 0
     else {
-      throw LocalAPIError.invalidRequest
+      throw LocalAPIError.invalidKeepaliveInterval
     }
     return number.doubleValue
   }
@@ -315,6 +316,10 @@ final class LocalAPIServer {
 enum LocalAPIError: LocalizedError {
   case unavailable
   case invalidRequest
+  case missingKeepaliveInterval
+  case invalidKeepaliveInterval
+  case keepaliveIntervalTooLong(TimeInterval, TimeInterval)
+  case serverManagedActivityTimeout
   case unknownCommand(String)
   case unknownActivity
   case socketPathTooLong
@@ -325,6 +330,16 @@ enum LocalAPIError: LocalizedError {
     switch self {
     case .unavailable: return "The local API is unavailable."
     case .invalidRequest: return "Invalid JSON Lines request."
+    case .missingKeepaliveInterval:
+      return "Missing required field 'keepalive_interval_seconds'."
+    case .invalidKeepaliveInterval:
+      return "'keepalive_interval_seconds' must be a positive finite number of seconds."
+    case .keepaliveIntervalTooLong(let interval, let timeout):
+      return
+        "'keepalive_interval_seconds' (\(interval)) must be less than the server activity timeout (\(timeout) seconds)."
+    case .serverManagedActivityTimeout:
+      return
+        "'activity_timeout_seconds' is controlled by the server and cannot be set per activity."
     case .unknownCommand(let command): return "Unknown command: \(command)."
     case .unknownActivity: return "Unknown activity ID."
     case .socketPathTooLong: return "The local API socket path is too long."

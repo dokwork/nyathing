@@ -173,18 +173,15 @@ enum NyathingCLI {
     let animationsDirectory = AppConfiguration.configurationDirectory
       .appendingPathComponent("animations", isDirectory: true)
     let animation = try resolveAnimation(cli.animation, in: animationsDirectory)
+    let keepaliveInterval = configuration.keepaliveInterval
     let client = try LocalAPIClient.connectOrStartServer()
     let activity = try client.command([
       "command": "start",
       "animation": animation,
       "description": activityDescription(command: cli.command, arguments: cli.arguments),
-      "keepalive_interval_seconds": NSNumber(value: configuration.keepaliveInterval),
-      "activity_timeout_seconds": NSNumber(value: configuration.activityTimeout),
+      "keepalive_interval_seconds": NSNumber(value: keepaliveInterval),
     ])
-    guard let activityID = activity["activity_id"] as? String,
-      let keepaliveInterval = activity["keepalive_interval_seconds"] as? Double,
-      keepaliveInterval.isFinite, keepaliveInterval > 0
-    else {
+    guard let activityID = activity["activity_id"] as? String else {
       throw CLIError.api("The server returned an invalid activity response.")
     }
     defer { _ = try? client.command(["command": "stop", "activity_id": activityID]) }

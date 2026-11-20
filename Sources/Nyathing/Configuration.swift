@@ -11,8 +11,8 @@ struct AppConfiguration {
   static let template = """
     # Seconds between client keepalive messages; must be greater than zero.
     keepalive_interval_seconds = 5
-    # Seconds without a keepalive before an activity expires; must be greater than zero.
-    activity_timeout_seconds = 5
+    # Server-side seconds without a keepalive before an activity expires.
+    activity_timeout_seconds = 30
     # Whether Nyathing should launch automatically when you log in.
     auto_start = false
     # Animation filename used when a client omits the animation field.

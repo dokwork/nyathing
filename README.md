@@ -166,10 +166,10 @@ your files.
 The complete initial configuration is:
 
 ```toml
-# Seconds between client keepalive messages; must be greater than zero.
+# Default interval at which clients send keepalives; must be less than the server timeout.
 keepalive_interval_seconds = 5
-# Seconds without a keepalive before an activity expires; must be greater than zero.
-activity_timeout_seconds = 5
+# Server-side seconds without a keepalive before an activity expires.
+activity_timeout_seconds = 30
 # Whether to launch Nyathing automatically when you log in.
 auto_start = false
 # Animation filename used when a client omits the animation field.
@@ -178,9 +178,11 @@ default_animation = "nyathing_36x36.png"
 
 Keep all four settings in your `config.toml`; Nyathing does not fill in omitted
 settings. Set `auto_start` to `true` or `false`; both durations must be positive
-numbers. Set `default_animation` to the filename of a valid animation in the
-`animations/` directory. Requests with an explicit animation use it; missing or
-unavailable requested animations fall back to the built-in ghost.
+numbers, and `keepalive_interval_seconds` must be less than
+`activity_timeout_seconds`. Set `default_animation` to the filename of a valid
+animation in the `animations/` directory. Requests with an explicit animation
+use it; missing or unavailable requested animations fall back to the built-in
+ghost.
 Use **Reload Configuration and Animations** in the menu after changing
 configuration or animation files. Reload clears active client activities and
 the disconnected-client count.
@@ -220,17 +222,16 @@ messages are supported:
 | `command` | string | Yes | Must be `start`. |
 | `animation` | string | No | Animation filename. Defaults to the server's configured animation; unavailable or invalid names use the built-in ghost. |
 | `description` | string | No | Description shown for the activity. If omitted or not a string, the server uses its default description. |
-| `keepalive_interval_seconds` | number | No | Positive, finite keepalive interval in seconds. Defaults to the server configuration. |
-| `activity_timeout_seconds` | number | No | Positive, finite inactivity timeout in seconds. Defaults to the server configuration. |
+| `keepalive_interval_seconds` | number | Yes | Positive, finite interval in seconds at which the client sends keepalives. Must be less than the server's configured `activity_timeout_seconds`. |
 
 Examples:
 
 ```json
-{"command":"start","animation":"nyan_54x36.png"}
+{"command":"start","animation":"nyan_54x36.png","keepalive_interval_seconds":5}
 ```
 or
 ```json
-{"command":"start","animation":"nyan_54x36.png","description":"make test","keepalive_interval_seconds":5,"activity_timeout_seconds":15}
+{"command":"start","animation":"nyan_54x36.png","description":"make test","keepalive_interval_seconds":5}
 ```
 
 #### `keepalive` request
@@ -285,9 +286,10 @@ A failed request returns an error response:
 ```
 
 Errors include malformed requests, unknown commands or activity identifiers,
-invalid timeout values, and request lines over the size limit. An activity
-expires if the server does not receive a keepalive within its configured
-timeout. Expiration increments the disconnected-client count; an explicit
+missing or invalid keepalive intervals, intervals not shorter than the server
+timeout, per-activity timeout overrides, and oversized request lines. An
+activity expires if the server does not receive a keepalive within its
+configured timeout. Expiration increments the disconnected-client count; an explicit
 `stop` does not.
 
 ## ✦ Minimal Python client example
@@ -308,7 +310,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         stream.write(json.dumps(value).encode() + b"\n")
         stream.flush()
         return json.loads(stream.readline())
-    activity = command({"command": "start", "animation": "nyan_54x36.png"})["activity_id"]
+    activity = command({"command": "start", "animation": "nyan_54x36.png", "keepalive_interval_seconds": 5})["activity_id"]
     command({"command": "keepalive", "activity_id": activity})
     command({"command": "stop", "activity_id": activity})
 ```

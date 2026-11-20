@@ -44,8 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }()
   private var activeAnimations: [String: ActiveAnimation] = [:]
   private var lifecycle = ActivityLifecycle()
-  private var activityTimeout: TimeInterval = 5
-  private var keepaliveInterval: TimeInterval = 5
+  private var activityTimeout: TimeInterval = 30
   private var activityTimeouts: [UUID: TimeInterval] = [:]
   private var activityStartOrder: [UUID: UInt64] = [:]
   private var nextActivityStartOrder: UInt64 = 0
@@ -312,7 +311,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
       activityTimeout = configuration.activityTimeout
-      keepaliveInterval = configuration.keepaliveInterval
       defaultAnimation = configuration.defaultAnimation
       try startAPIServer()
     } catch {
@@ -335,7 +333,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let generation = apiGeneration
     apiServer = LocalAPIServer(
       defaultAnimation: defaultAnimation,
-      defaultKeepaliveInterval: keepaliveInterval,
       defaultActivityTimeout: activityTimeout,
       onStart: { [weak self] filename, description, timeout in
         try DispatchQueue.main.sync {
