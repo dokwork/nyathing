@@ -6,7 +6,7 @@ final class LocalAPIServer {
   static let defaultKeepaliveInterval: TimeInterval = 5
   private let defaultAnimation: String
   private let maxWaitTime: TimeInterval
-  private let onStart: (String, String?, TimeInterval) throws -> String
+  private let onStart: (String, String?, TimeInterval, Bool, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
   private let onStop: (String) throws -> Void
   private let socketPath: String
@@ -19,7 +19,7 @@ final class LocalAPIServer {
     socketPath: String = LocalAPIServer.socketPath,
     defaultAnimation: String = "nyathing_36x36.png",
     maxWaitTime: TimeInterval = 60,
-    onStart: @escaping (String, String?, TimeInterval) throws -> String,
+    onStart: @escaping (String, String?, TimeInterval, Bool, TimeInterval) throws -> String,
     onKeepalive: @escaping (String) throws -> Void,
     onStop: @escaping (String) throws -> Void
   ) {
@@ -223,6 +223,7 @@ final class LocalAPIServer {
         guard request["activity_timeout_seconds"] == nil else {
           throw LocalAPIError.serverManagedActivityTimeout
         }
+        let keepaliveIntervalWasProvided = request["keepalive_interval_seconds"] != nil
         let keepaliveInterval: TimeInterval
         if let rawKeepaliveInterval = request["keepalive_interval_seconds"] {
           keepaliveInterval = try positiveSeconds(rawKeepaliveInterval)
@@ -233,7 +234,8 @@ final class LocalAPIServer {
         return [
           "ok": true,
           "activity_id": try onStart(
-            animation, request["description"] as? String, activityTimeout),
+            animation, request["description"] as? String, keepaliveInterval,
+            keepaliveIntervalWasProvided, activityTimeout),
         ]
       case "keepalive":
         guard let activityID = request["activity_id"] as? String, !activityID.isEmpty else {

@@ -46,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private var lifecycle = ActivityLifecycle()
   private var maxWaitTime: TimeInterval = 60
   private var activityTimeouts: [UUID: TimeInterval] = [:]
+  private var activityKeepaliveIntervals: [UUID: TimeInterval] = [:]
+  private var activityKeepaliveIntervalSources: [UUID: String] = [:]
+  private var timedOutActivityDetails: [UUID: ActivityTimeoutDetails] = [:]
   private var activityStartOrder: [UUID: UInt64] = [:]
   private var nextActivityStartOrder: UInt64 = 0
   private var defaultAnimation = "nyathing_36x36.png"
@@ -200,19 +203,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       stack.orientation = .vertical
       stack.alignment = .leading
       stack.spacing = 10
+      stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 20, right: 20)
       stack.setContentHuggingPriority(.required, for: .vertical)
       stack.setContentCompressionResistancePriority(.required, for: .vertical)
       stack.translatesAutoresizingMaskIntoConstraints = false
       scrollView.documentView = stack
       window.contentView = scrollView
       NSLayoutConstraint.activate([
-        stack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor, constant: 12),
-        stack.trailingAnchor.constraint(
-          equalTo: scrollView.contentView.trailingAnchor, constant: -12),
-        stack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor, constant: 12),
-        stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor, constant: -24),
-        stack.heightAnchor.constraint(
-          greaterThanOrEqualTo: scrollView.contentView.heightAnchor, constant: -24),
+        stack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+        stack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+        stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+        stack.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
       ])
       errorsWindow = window
       errorsStackView = stack
@@ -223,12 +224,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     NSApp.activate(ignoringOtherApps: true)
   }
 
+  private func sectionLabel(_ text: String) -> NSTextField {
+    let label = NSTextField(labelWithString: text)
+    label.font = .systemFont(ofSize: 11, weight: .semibold)
+    label.textColor = .secondaryLabelColor
+    return label
+  }
+
+  private static func seconds(_ value: TimeInterval) -> String {
+    "\(value.formatted()) seconds"
+  }
+
   @objc private func acknowledgeError(_ sender: NSButton) {
     guard let id = UUID(uuidString: sender.identifier?.rawValue ?? ""),
       lifecycle.acknowledgeTimeout(id)
     else { return }
+    timedOutActivityDetails.removeValue(forKey: id)
     updateMainStatusItemVisibility()
     updateMainStatusItem()
+    refreshStatusItemMenus()
     refreshErrorsWindow()
     if lifecycle.timedOutActivities.isEmpty {
       errorsWindow?.close()
@@ -256,25 +270,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stack.addArrangedSubview(separator)
         separator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
       }
-      let row = NSStackView()
-      row.orientation = .horizontal
-      row.alignment = .centerY
-      row.spacing = 12
-      row.distribution = .fill
-      let leadingInset = NSView()
-      leadingInset.setContentHuggingPriority(.required, for: .horizontal)
-      leadingInset.widthAnchor.constraint(equalToConstant: 8).isActive = true
+      let details = timedOutActivityDetails[error.id]
+      let block = NSStackView()
+      block.orientation = .vertical
+      block.alignment = .leading
+      block.spacing = 5
+      block.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      block.addArrangedSubview(sectionLabel("Activity ID"))
+      let idLabel = NSTextField(labelWithString: error.id.uuidString)
+      idLabel.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+      block.addArrangedSubview(idLabel)
+      block.addArrangedSubview(sectionLabel("Client description"))
       let descriptionLabel = NSTextField(wrappingLabelWithString: error.description)
       descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      block.addArrangedSubview(descriptionLabel)
+      block.addArrangedSubview(sectionLabel("Reason"))
+      let reasonLabel = NSTextField(
+        wrappingLabelWithString: "No keepalive was received before the activity timed out.")
+      reasonLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      block.addArrangedSubview(reasonLabel)
+      if let details {
+        let intervalLabel = NSTextField(
+          wrappingLabelWithString:
+            "Keepalive interval: \(Self.seconds(details.keepaliveInterval)) "
+            + "(\(details.intervalSource)).")
+        intervalLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        block.addArrangedSubview(intervalLabel)
+        let waitExplanation =
+          details.timeout < details.keepaliveInterval * 2
+          ? "capped by max_wait_time"
+          : "2 × keepalive interval"
+        let timeoutLabel = NSTextField(
+          wrappingLabelWithString:
+            "Expiration threshold: \(Self.seconds(details.timeout)) "
+            + "(\(waitExplanation); max_wait_time is "
+            + "\(Self.seconds(details.maxWaitTime))).")
+        timeoutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        block.addArrangedSubview(timeoutLabel)
+      }
+      let buttonRow = NSStackView()
+      buttonRow.orientation = .horizontal
+      buttonRow.alignment = .centerY
+      buttonRow.distribution = .fill
+      let buttonSpacer = NSView()
+      buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
       let acknowledgeButton = NSButton(
         title: "Acknowledge", target: self, action: #selector(acknowledgeError(_:)))
       acknowledgeButton.identifier = NSUserInterfaceItemIdentifier(error.id.uuidString)
-      row.addArrangedSubview(leadingInset)
-      row.addArrangedSubview(descriptionLabel)
-      row.addArrangedSubview(acknowledgeButton)
-      stack.addArrangedSubview(row)
-      row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+      buttonRow.addArrangedSubview(buttonSpacer)
+      buttonRow.addArrangedSubview(acknowledgeButton)
+      block.addArrangedSubview(buttonRow)
+      buttonRow.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+      stack.addArrangedSubview(block)
+      block.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
     }
+  }
+
+  private static func shortAnimationName(_ filename: String) -> String? {
+    guard
+      let range = filename.range(
+        of: #"_[0-9]+x[0-9]+\.png$"#, options: .regularExpression)
+    else { return nil }
+    return String(filename[..<range.lowerBound])
+  }
+
+  private func animationMenuItem(title: String, frame: NSImage?) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+    item.representedObject = title
+    let attributedTitle = NSMutableAttributedString(string: "\u{2002}\(title)  ")
+    if let frame {
+      let image = (frame.copy() as? NSImage) ?? frame
+      image.size = NSSize(width: 18, height: 18)
+      let attachment = NSTextAttachment()
+      attachment.image = image
+      attachment.bounds = CGRect(x: 0, y: -4, width: 18, height: 18)
+      attributedTitle.append(NSAttributedString(attachment: attachment))
+    }
+    item.attributedTitle = attributedTitle
+    return item
   }
 
   @objc private func editConfiguration() {
@@ -294,8 +367,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     let animationDirectory = AppConfiguration.configurationDirectory
       .appendingPathComponent("animations", isDirectory: true)
-    let animationNames = ["random"] + SpriteAnimation.loadAll(in: animationDirectory).keys.sorted()
-    guard !animationNames.isEmpty else {
+    var animationsByName: [String: SpriteAnimation] = [:]
+    for animation in SpriteAnimation.loadAll(in: animationDirectory).values {
+      guard let name = Self.shortAnimationName(animation.filename) else { continue }
+      if let current = animationsByName[name],
+        current.frameSize.width * current.frameSize.height
+          >= animation.frameSize.width * animation.frameSize.height
+      {
+        continue
+      }
+      animationsByName[name] = animation
+    }
+    let animationNames = ["random"] + animationsByName.keys.sorted()
+    guard animationNames.count > 1 else {
       showConfigurationEditorError("No valid animations are available.")
       return
     }
@@ -306,8 +390,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     maxWaitTimeField.widthAnchor.constraint(equalToConstant: 130).isActive = true
 
     let animationPicker = NSPopUpButton()
-    animationPicker.addItems(withTitles: animationNames)
-    animationPicker.selectItem(withTitle: configuration.defaultAnimation)
+    for name in animationNames {
+      animationPicker.menu?.addItem(
+        animationMenuItem(title: name, frame: animationsByName[name]?.frames.first))
+    }
+    let selectedAnimationName =
+      Self.shortAnimationName(configuration.defaultAnimation)
+      ?? configuration.defaultAnimation
+    if let index = animationNames.firstIndex(of: selectedAnimationName) {
+      animationPicker.selectItem(at: index)
+    }
 
     let autoStart = NSButton(
       checkboxWithTitle: "Launch Nyathing at login", target: self, action: nil)
@@ -380,7 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     guard let maxWaitTimeField,
       let autoStartCheckbox,
       let defaultAnimationPicker,
-      let animation = defaultAnimationPicker.titleOfSelectedItem
+      let selectedAnimation = defaultAnimationPicker.selectedItem?.representedObject as? String
     else { return }
 
     guard let maxWaitTime = Double(maxWaitTimeField.stringValue),
@@ -388,6 +480,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     else {
       showConfigurationEditorError("Maximum wait time must be a positive finite number.")
       return
+    }
+
+    let animation: String
+    if selectedAnimation == "random" {
+      animation = selectedAnimation
+    } else {
+      let animationDirectory = AppConfiguration.configurationDirectory
+        .appendingPathComponent("animations", isDirectory: true)
+      do {
+        let resolved = try NyathingCLI.resolveAnimation(selectedAnimation, in: animationDirectory)
+        animation = URL(fileURLWithPath: resolved).lastPathComponent
+      } catch {
+        showConfigurationEditorError(error.localizedDescription)
+        return
+      }
     }
 
     let configurationText = """
@@ -476,11 +583,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     apiServer = LocalAPIServer(
       defaultAnimation: serverDefaultAnimation,
       maxWaitTime: maxWaitTime,
-      onStart: { [weak self] filename, description, timeout in
+      onStart: { [weak self] filename, description, interval, intervalWasProvided, timeout in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
           return try self.startActivity(
-            animation: filename, description: description, activityTimeout: timeout
+            animation: filename, description: description, activityTimeout: timeout,
+            keepaliveInterval: interval, intervalWasProvided: intervalWasProvided
           ).uuidString
         }
       },
@@ -509,6 +617,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
   private func clearRuntimeState() {
     activeAnimations.removeAll()
+    activityTimeouts.removeAll()
+    activityKeepaliveIntervals.removeAll()
+    activityKeepaliveIntervalSources.removeAll()
+    timedOutActivityDetails.removeAll()
     activityStartOrder.removeAll()
     nextActivityStartOrder = 0
     lifecycle.reset()
@@ -521,7 +633,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   @discardableResult
   func startActivity(
     animation filename: String, description: String? = nil,
-    activityTimeout timeout: TimeInterval? = nil
+    activityTimeout timeout: TimeInterval? = nil,
+    keepaliveInterval: TimeInterval = LocalAPIServer.defaultKeepaliveInterval,
+    intervalWasProvided: Bool = false
   ) throws -> UUID {
     let directory = AppConfiguration.configurationDirectory.appendingPathComponent(
       "animations", isDirectory: true)
@@ -548,6 +662,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     activityStartOrder[id] = nextActivityStartOrder
     nextActivityStartOrder &+= 1
     activityTimeouts[id] = timeout
+    activityKeepaliveIntervals[id] = keepaliveInterval
+    activityKeepaliveIntervalSources[id] =
+      intervalWasProvided ? "client-provided" : "built-in default"
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
     if let active = existingAnimation {
       active.activityIDs.insert(id)
@@ -575,6 +692,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   func stopActivity(_ id: UUID) {
     guard let filename = lifecycle.stop(id) else { return }
     activityTimeouts.removeValue(forKey: id)
+    activityKeepaliveIntervals.removeValue(forKey: id)
+    activityKeepaliveIntervalSources.removeValue(forKey: id)
     activityStartOrder.removeValue(forKey: id)
     removeActivityFromStatusItem(id, animation: filename)
     refreshStatusItemMenus()
@@ -684,7 +803,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       return
     }
     guard let expired = lifecycle.expire(id, deadline: deadlineUptime) else { return }
-    activityTimeouts.removeValue(forKey: id)
+    let interval =
+      activityKeepaliveIntervals.removeValue(forKey: id)
+      ?? LocalAPIServer.defaultKeepaliveInterval
+    let intervalSource =
+      activityKeepaliveIntervalSources.removeValue(forKey: id)
+      ?? "built-in default"
+    let timeout = activityTimeouts.removeValue(forKey: id) ?? min(interval * 2, maxWaitTime)
+    timedOutActivityDetails[id] = ActivityTimeoutDetails(
+      keepaliveInterval: interval, intervalSource: intervalSource,
+      timeout: timeout, maxWaitTime: maxWaitTime)
     activityStartOrder.removeValue(forKey: id)
     removeActivityFromStatusItem(id, animation: expired.animation)
     refreshStatusItemMenus()
@@ -738,6 +866,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       return image
     }
   }
+}
+
+private struct ActivityTimeoutDetails {
+  let keepaliveInterval: TimeInterval
+  let intervalSource: String
+  let timeout: TimeInterval
+  let maxWaitTime: TimeInterval
 }
 
 private final class ActiveAnimation {

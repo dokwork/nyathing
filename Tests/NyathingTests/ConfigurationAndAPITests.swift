@@ -483,16 +483,20 @@ final class LocalAPIServerTests: XCTestCase {
     var startedAnimations: [String] = []
     var startedDescriptions: [String?] = []
     var startedTimeouts: [Double] = []
+    var startedIntervals: [Double] = []
+    var startedIntervalsWereProvided: [Bool] = []
     var stoppedIDs: [String] = []
     let server = LocalAPIServer(
       socketPath: socketPath,
       defaultAnimation: "nyan_54x36.png",
       maxWaitTime: 30,
-      onStart: { animation, description, timeout in
+      onStart: { animation, description, interval, intervalWasProvided, timeout in
         lock.lock()
         defer { lock.unlock() }
         startedAnimations.append(animation)
         startedDescriptions.append(description)
+        startedIntervals.append(interval)
+        startedIntervalsWereProvided.append(intervalWasProvided)
         startedTimeouts.append(timeout)
         return "activity-\(startedAnimations.count)"
       }, onKeepalive: { _ in },
@@ -553,6 +557,8 @@ final class LocalAPIServerTests: XCTestCase {
     XCTAssertEqual(stoppedIDs, ["activity-3"])
     XCTAssertEqual(startedDescriptions, [nil, nil, "first client", nil, nil])
     XCTAssertEqual(startedTimeouts, [10, 30, 16, 10, 2])
+    XCTAssertEqual(startedIntervals, [5, 30, 8, 5, 1])
+    XCTAssertEqual(startedIntervalsWereProvided, [false, true, true, true, true])
     lock.unlock()
 
     let responseLock = NSLock()

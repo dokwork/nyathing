@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help format lint test package run install-app install-cli-link install uninstall
+.PHONY: help format lint test package run install-app install-cli-link install uninstall reinstall
 
 help:
 	@printf '%s\n' \
@@ -38,6 +38,8 @@ install: install-app install-cli-link
 
 uninstall:
 	bash Scripts/force-uninstall.sh
+
+reinstall: uninstall install
 
 run:
 	swift build
