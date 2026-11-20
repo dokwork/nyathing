@@ -154,8 +154,13 @@ enum NyathingCLI {
         _ = try AppConfiguration.load()
         let directory = AppConfiguration.configurationDirectory
           .appendingPathComponent("animations", isDirectory: true)
-        for filename in SpriteAnimation.loadAll(in: directory).keys.sorted() {
-          print(filename)
+        let names = SpriteAnimation.loadAll(in: directory).keys.compactMap { filename -> String? in
+          guard let separator = filename.range(of: #"_[0-9]+x[0-9]+\.png$"#, options: .regularExpression)
+          else { return nil }
+          return String(filename[..<separator.lowerBound])
+        }
+        for name in Set(names).sorted() {
+          print(name)
         }
         return 0
       }

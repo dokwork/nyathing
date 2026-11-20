@@ -103,7 +103,7 @@ animations. If none are available, Nyathing uses its built-in ghost animation:
 Quote paths containing spaces as usual in your shell. Relative command paths
 are resolved from the current working directory.
 
-List valid installed animations with:
+List valid installed animations by short name with:
 
 ```sh
   nyathing list
