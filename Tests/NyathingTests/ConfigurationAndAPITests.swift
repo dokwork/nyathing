@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import XCTest
@@ -235,6 +236,34 @@ final class ConfigurationTests: XCTestCase {
     XCTAssertEqual(configuration.defaultAnimation, "random")
   }
 
+  func testLoadsAnimationWithFrameDimensionsFromFilename() throws {
+    let url = temporaryDirectory.appendingPathComponent("wide_64x48.png")
+    try writePNG(width: 128, height: 48, to: url)
+
+    let animation = try SpriteAnimation.load(from: url)
+
+    XCTAssertEqual(animation.frameSize, NSSize(width: 64, height: 48))
+    XCTAssertEqual(animation.frames.count, 2)
+  }
+
+  func testRejectsFrameDimensionsOutsideSupportedBounds() {
+    for filename in ["small_15x36.png", "large_257x36.png", "wide_256x16.png"] {
+      XCTAssertThrowsError(
+        try SpriteAnimation.load(from: URL(fileURLWithPath: "/tmp/\(filename)")),
+        filename)
+    }
+  }
+
+  func testRejectsOversizedSpriteSheetsAndExcessiveFrameCounts() throws {
+    let oversized = temporaryDirectory.appendingPathComponent("large_256x256.png")
+    try writePNG(width: 256 * 62, height: 256, to: oversized)
+    XCTAssertThrowsError(try SpriteAnimation.load(from: oversized))
+
+    let tooManyFrames = temporaryDirectory.appendingPathComponent("many_16x16.png")
+    try writePNG(width: 16 * 121, height: 16, to: tooManyFrames)
+    XCTAssertThrowsError(try SpriteAnimation.load(from: tooManyFrames))
+  }
+
   func testRemovesObsoleteIconSettingAndKeepsDefaultAnimation() throws {
     let oldTemplate = AppConfiguration.template
       .replacingOccurrences(
@@ -282,6 +311,19 @@ final class ConfigurationTests: XCTestCase {
       AppConfiguration.template.replacingOccurrences(
         of: "activity_timeout_seconds = 30", with: "activity_timeout_seconds = 0"))
     XCTAssertThrowsError(try AppConfiguration.load(in: temporaryDirectory))
+  }
+
+  private func writePNG(width: Int, height: Int, to url: URL) throws {
+    guard
+      let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
+        samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+        bytesPerRow: 0, bitsPerPixel: 0),
+      let data = bitmap.representation(using: .png, properties: [:])
+    else {
+      throw NSError(domain: "ConfigurationTests", code: 1)
+    }
+    try data.write(to: url)
   }
 
   private func writeConfiguration(_ contents: String) throws {

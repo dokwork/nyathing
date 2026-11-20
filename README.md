@@ -141,11 +141,14 @@ completing an animation argument, so the suggestions reflect installed files.
 
 ## Animation file format
 
-Animation files are single horizontal PNG sprite sheets. Supported frame sizes
-are 36x36 and 54x36 pixels; image height must equal the frame height and image
-width must be a positive multiple of it. Name files with the frame size suffix,
-for example `nyan_54x36.png`. The app validates assets on startup and reload;
-invalid assets are ignored and logged. Playback runs at 10 frames per second.
+Animation files are horizontal PNG sprite sheets. The filename suffix declares
+the dimensions of each frame, for example `nyan_64x48.png`. Each dimension must
+be between 16 and 256 pixels, with an aspect ratio no greater than 3:1. The
+image height must match the declared frame height, and its width must be a
+positive multiple of the declared frame width. Sheets may contain at most 120
+frames and 4 million pixels total. Frames are scaled to fit the menu bar. The
+app validates assets on startup and when settings are accepted; invalid assets
+are ignored and logged. Playback runs at 10 frames per second.
 
 ## ⚙ Configuration
 

@@ -204,40 +204,61 @@ struct SpriteAnimation {
   let frameSize: NSSize
   let frames: [NSImage]
 
+  static let minimumFrameDimension = 16
+  static let maximumFrameDimension = 256
+  static let maximumFrameAspectRatio = 3.0
+  static let maximumFrameCount = 120
+  static let maximumSpriteSheetPixels = 4_000_000
+
   static func load(from url: URL) throws -> SpriteAnimation {
     let filename = url.lastPathComponent
-    let pattern = #"^(.+)_((?:36x36)|(?:54x36))\.png$"#
+    let pattern = #"^(.+)_([0-9]+)x([0-9]+)\.png$"#
     guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
       let match = regex.firstMatch(
         in: filename, range: NSRange(filename.startIndex..., in: filename)),
-      let sizeRange = Range(match.range(at: 2), in: filename)
+      let widthRange = Range(match.range(at: 2), in: filename),
+      let heightRange = Range(match.range(at: 3), in: filename),
+      let frameWidth = Int(filename[widthRange]),
+      let frameHeight = Int(filename[heightRange])
     else {
       throw AnimationError.invalidFilename(filename)
     }
-    let sizeName = filename[sizeRange].lowercased()
-    let size: NSSize =
-      sizeName == "36x36" ? NSSize(width: 36, height: 36) : NSSize(width: 54, height: 36)
+    let frameSize = NSSize(width: frameWidth, height: frameHeight)
+    let dimensionsAreInRange =
+      (Self.minimumFrameDimension...Self.maximumFrameDimension).contains(frameWidth)
+      && (Self.minimumFrameDimension...Self.maximumFrameDimension).contains(frameHeight)
+    let aspectRatio = Double(max(frameWidth, frameHeight)) / Double(min(frameWidth, frameHeight))
+    guard dimensionsAreInRange, aspectRatio <= Self.maximumFrameAspectRatio else {
+      throw AnimationError.unsupportedFrameSize(filename, frameWidth, frameHeight)
+    }
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-      let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+      let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue
     else {
       throw AnimationError.invalidPNG(filename)
     }
-    let width = image.width
-    let height = image.height
-    let frameWidth = Int(size.width)
-    let frameHeight = Int(size.height)
     guard height == frameHeight, width > 0, width % frameWidth == 0 else {
       throw AnimationError.invalidDimensions(filename, width, height)
     }
-    let sheet = NSImage(cgImage: image, size: NSSize(width: width, height: height))
+    let frameCount = width / frameWidth
+    guard frameCount <= Self.maximumFrameCount else {
+      throw AnimationError.tooManyFrames(filename, frameCount, Self.maximumFrameCount)
+    }
+    guard width <= Self.maximumSpriteSheetPixels / height else {
+      throw AnimationError.spriteSheetTooLarge(
+        filename, width, height, Self.maximumSpriteSheetPixels)
+    }
+    guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+      throw AnimationError.invalidPNG(filename)
+    }
     var frames: [NSImage] = []
-    for index in 0..<(width / frameWidth) {
+    for index in 0..<frameCount {
       let rect = CGRect(x: index * frameWidth, y: 0, width: frameWidth, height: frameHeight)
       guard let crop = image.cropping(to: rect) else { throw AnimationError.invalidPNG(filename) }
-      frames.append(NSImage(cgImage: crop, size: size))
+      frames.append(NSImage(cgImage: crop, size: frameSize))
     }
-    _ = sheet
-    return SpriteAnimation(filename: filename, frameSize: size, frames: frames)
+    return SpriteAnimation(filename: filename, frameSize: frameSize, frames: frames)
   }
 
   static func loadAll(in directory: URL) -> [String: SpriteAnimation] {
@@ -272,13 +293,24 @@ enum AnimationResolution {
 enum AnimationError: LocalizedError {
   case invalidFilename(String)
   case invalidPNG(String)
+  case unsupportedFrameSize(String, Int, Int)
   case invalidDimensions(String, Int, Int)
+  case tooManyFrames(String, Int, Int)
+  case spriteSheetTooLarge(String, Int, Int, Int)
   var errorDescription: String? {
     switch self {
     case .invalidFilename(let name): return "Unrecognized animation filename: \(name)"
     case .invalidPNG(let name): return "Unable to decode PNG animation: \(name)"
+    case .unsupportedFrameSize(let name, let width, let height):
+      return
+        "Unsupported frame size for \(name): \(width)x\(height). Dimensions must be between 16 and 256 pixels with an aspect ratio no greater than 3:1."
     case .invalidDimensions(let name, let width, let height):
       return "Invalid sprite dimensions for \(name): \(width)x\(height)"
+    case .tooManyFrames(let name, let count, let maximum):
+      return "Too many frames in \(name): \(count); maximum is \(maximum)."
+    case .spriteSheetTooLarge(let name, let width, let height, let maximumPixels):
+      return
+        "Sprite sheet \(name) is too large (\(width)x\(height)); maximum is \(maximumPixels) pixels."
     }
   }
 }
