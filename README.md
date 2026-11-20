@@ -9,7 +9,7 @@ Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
 task is done.
 
-## Install
+## 🢃 Install
 
 Download the installer package from the repository's **Releases** page. Open
 the package and follow the Installer prompts to install `Nyathing.app` in
@@ -51,6 +51,8 @@ Alternatively, build and run `Nyathing` locally using the instructions in
 
 ## Nyathing server
 
+<p align="right"><img src="assets/nyathing-server.png" alt="nyathing-server" height=80></p>
+
 Nyathing exposes a local API over a Unix domain stream socket. The socket path is
 `$XDG_RUNTIME_DIR/nyathing.sock` when `XDG_RUNTIME_DIR` is set; otherwise it is
 `$TMPDIR/nyathing-<uid>.sock` (usually `/tmp`). The socket is restricted to the
@@ -61,33 +63,15 @@ Nyathing returns one JSON object followed by a newline for each request. A
 connection can carry multiple request/response pairs, and multiple clients may
 connect at the same time. Request lines are limited to 1 MiB.
 
-Commands:
+For the complete message formats, field requirements, and response schemas,
+see [Server communication protocol](#server-communication-protocol). 
 
-- Start an activity: `{"command":"start","animation":"nyan_54x36.png"}`
-  returns `{"ok":true,"activity_id":"…"}`. Optional
-  `keepalive_interval_seconds` and `activity_timeout_seconds` fields override
-  the corresponding `config.toml` defaults for this activity; both must be
-  positive numbers. The animation is identified by
-  its filename. The `animation` field is optional; when omitted, Nyathing uses
-  the animation selected by `default_animation` in `config.toml`. If a
-  requested animation is unavailable or invalid, Nyathing uses the built-in
-  ghost animation.
-- Refresh a running activity: `{"command":"keepalive","activity_id":"…"}`
-  returns `{"ok":true}` and resets its expiration timer.
-- End an activity: `{"command":"stop","activity_id":"…"}` returns
-  `{"ok":true}` and does not count as a disconnect.
+## Nyathing CLI
 
-Errors return `{"ok":false,"error":"…"}`. This includes malformed requests,
-unknown commands, and unknown activity IDs. Send keepalives periodically; the
-activity expires after `activity_timeout_seconds` without one. Expiration
-increments the disconnected-client count and plays `explosion_36x36.png` when
-available. Explicitly stopping an activity does not count as a disconnect.
-Use **Reset Disconnected Count** in the menu to clear the count.
+<p align="right"><img src="assets/nyathing-cli.png" alt="nyathing-cli" height=85></p>
 
-## Run terminal commands with Nyathing
-
-Run a command with `nyathing` to display an animation while it runs. Nyathing
-starts the activity, keeps it alive while the command runs, then stops it.
+Nyathing provides a command-line utility for wrapping long-running terminal
+commands in an animation.
 
 For example, show an animation while waiting five seconds, with or without a
 custom animation:
@@ -132,7 +116,7 @@ To view available options or check the installed version:
   nyathing --version
 ```
 
-## Shell completion
+## ❯ Shell completion
 
 Nyathing can generate completion scripts for Zsh and Bash. Add the appropriate
 command to your shell configuration file to enable completion in new shells.
@@ -163,7 +147,7 @@ width must be a positive multiple of it. Name files with the frame size suffix,
 for example `nyan_54x36.png`. The app validates assets on startup and reload;
 invalid assets are ignored and logged. Playback runs at 10 frames per second.
 
-## Configuration
+## ⚙ Configuration
 
 On first launch, Nyathing creates its configuration directory and adds these
 built-in animations:
@@ -201,7 +185,112 @@ Use **Reload Configuration and Animations** in the menu after changing
 configuration or animation files. Reload clears active client activities and
 the disconnected-client count.
 
-## Minimal Python client example
+## {} Server communication protocol
+
+The server communicates over a Unix domain `SOCK_STREAM` socket using UTF-8
+JSON Lines. Each message is a JSON object followed by `\n`; each request
+receives exactly one response. A connection may carry multiple sequential
+request/response pairs. A request line may be at most 1 MiB. The socket is
+accessible only to the current user, whose identity is also checked when
+connecting.
+
+### Request messages
+
+Every request has this common envelope:
+
+```json
+{
+  "command": "<command-name>"
+}
+```
+
+The `command` property is required and must be a string. The following command
+messages are supported:
+
+| Command | Description |
+| --- | --- |
+| `start` | Starts an activity and returns its identifier. |
+| `keepalive` | Refreshes an activity's expiration timer. |
+| `stop` | Ends an activity without counting it as a disconnect. |
+
+#### `start` request
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | string | Yes | Must be `start`. |
+| `animation` | string | No | Animation filename. Defaults to the server's configured animation; unavailable or invalid names use the built-in ghost. |
+| `description` | string | No | Description shown for the activity. If omitted or not a string, the server uses its default description. |
+| `keepalive_interval_seconds` | number | No | Positive, finite keepalive interval in seconds. Defaults to the server configuration. |
+| `activity_timeout_seconds` | number | No | Positive, finite inactivity timeout in seconds. Defaults to the server configuration. |
+
+Examples:
+
+```json
+{"command":"start","animation":"nyan_54x36.png"}
+```
+or
+```json
+{"command":"start","animation":"nyan_54x36.png","description":"make test","keepalive_interval_seconds":5,"activity_timeout_seconds":15}
+```
+
+#### `keepalive` request
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | string | Yes | Must be `keepalive`. |
+| `activity_id` | string (UUID) | Yes | Identifier returned by the corresponding `start` request. |
+
+Example:
+
+```json
+{"command":"keepalive","activity_id":"<activity-id>"}
+```
+
+Send keepalives periodically, typically at the interval specified in the
+`start` request. If the server does not receive one within the configured
+`activity_timeout_seconds`, the activity expires and increments the
+disconnected-client count.
+
+#### `stop` request
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | string | Yes | Must be `stop`. |
+| `activity_id` | string (UUID) | Yes | Identifier returned by the corresponding `start` request. Stopping an activity does not count as a disconnect. |
+
+Example:
+
+```json
+{"command":"stop","activity_id":"<activity-id>"}
+```
+
+### Response messages
+
+A successful `start` response contains the activity identifier:
+
+```json
+{"ok":true,"activity_id":"<activity-id>"}
+```
+
+Successful `keepalive` and `stop` responses are:
+
+```json
+{"ok":true}
+```
+
+A failed request returns an error response:
+
+```json
+{"ok":false,"error":"<error-message>"}
+```
+
+Errors include malformed requests, unknown commands or activity identifiers,
+invalid timeout values, and request lines over the size limit. An activity
+expires if the server does not receive a keepalive within its configured
+timeout. Expiration increments the disconnected-client count; an explicit
+`stop` does not.
+
+## ✦ Minimal Python client example
 
 ```python
 import json
@@ -235,7 +324,7 @@ Set `auto_start = false` and reload to remove the LaunchAgent. If you move
 `Nyathing.app`, enable auto-start again and reload so the LaunchAgent records
 the app's new location.
 
-## Troubleshooting
+## ⚡︎ Troubleshooting
 
 Startup and runtime diagnostics are written to
 `$XDG_STATE_HOME/nyathing/nyathing.log`, or
@@ -246,7 +335,7 @@ If the socket path is already in use, quit the existing instance before
 launching another. Invalid animation files are reported in the log; correct
 them and reload.
 
-## Build from source
+## ⚒ Build from source
 
 Requires macOS 12+ and Swift 5.9 or later. Run the commands below from the
 repository root.

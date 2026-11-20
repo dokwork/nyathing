@@ -90,16 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         withTitle: "View Errors", action: #selector(viewErrors), keyEquivalent: "")
     }
     menu.addItem(
-      withTitle: "Reset Disconnected Count", action: #selector(resetDisconnectedCount),
-      keyEquivalent: "")
-    menu.addItem(
       withTitle: "Reload Configuration and Animations", action: #selector(reloadFromMenu),
       keyEquivalent: "")
     menu.addItem(
       withTitle: "Open Configuration", action: #selector(openConfiguration), keyEquivalent: "")
     menu.addItem(.separator())
-    menu.addItem(withTitle: "About Nyathing", action: #selector(showAbout), keyEquivalent: "")
-    menu.addItem(withTitle: "Quit Nyathing", action: #selector(quit), keyEquivalent: "q")
+    menu.addItem(withTitle: "About", action: #selector(showAbout), keyEquivalent: "")
+    menu.addItem(.separator())
+    menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
     for menuItem in menu.items { menuItem.target = self }
     item.menu = menu
   }
@@ -111,8 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let font = NSFont.menuFont(ofSize: 0)
     let widestActionTitle =
       [
-        "View Errors", "Reset Disconnected Count", "Reload Configuration and Animations",
-        "Open Configuration", "About Nyathing", "Quit Nyathing",
+        "View Errors", "Reload Configuration and Animations",
+        "Open Configuration", "About", "Quit",
       ].map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
     let iconColumnWidth: CGFloat = 16
     let horizontalMenuPadding: CGFloat = 16
@@ -278,13 +276,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       stack.addArrangedSubview(row)
       row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
-  }
-
-  @objc private func resetDisconnectedCount() {
-    lifecycle.resetDisconnectedCount()
-    updateMainStatusItemVisibility()
-    updateMainStatusItem()
-    refreshErrorsWindow()
   }
 
   @objc private func reloadFromMenu() {
