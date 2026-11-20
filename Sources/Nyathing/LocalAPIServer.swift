@@ -6,7 +6,7 @@ final class LocalAPIServer {
   private let defaultAnimation: String
   private let defaultKeepaliveInterval: TimeInterval
   private let defaultActivityTimeout: TimeInterval
-  private let onStart: (String, String?, TimeInterval, TimeInterval) throws -> String
+  private let onStart: (String, String?, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
   private let onStop: (String) throws -> Void
   private let socketPath: String
@@ -20,7 +20,7 @@ final class LocalAPIServer {
     defaultAnimation: String = "nyathing_36x36.png",
     defaultKeepaliveInterval: TimeInterval = 5,
     defaultActivityTimeout: TimeInterval = 5,
-    onStart: @escaping (String, String?, TimeInterval, TimeInterval) throws -> String,
+    onStart: @escaping (String, String?, TimeInterval) throws -> String,
     onKeepalive: @escaping (String) throws -> Void,
     onStop: @escaping (String) throws -> Void
   ) {
@@ -226,10 +226,12 @@ final class LocalAPIServer {
           request["keepalive_interval_seconds"], default: defaultKeepaliveInterval)
         let activityTimeout = try seconds(
           request["activity_timeout_seconds"], default: defaultActivityTimeout)
+        let effectiveKeepaliveInterval = min(keepaliveInterval, activityTimeout / 2)
         return [
           "ok": true,
           "activity_id": try onStart(
-            animation, request["description"] as? String, keepaliveInterval, activityTimeout),
+            animation, request["description"] as? String, activityTimeout),
+          "keepalive_interval_seconds": effectiveKeepaliveInterval,
         ]
       case "keepalive":
         guard let activityID = request["activity_id"] as? String, !activityID.isEmpty else {

@@ -103,18 +103,6 @@ final class CLITests: XCTestCase {
     XCTAssertEqual(NyathingCLI.activityDescription(command: "sleep", arguments: []), "sleep")
   }
 
-  func testKeepaliveIntervalPrecedesConfiguredActivityTimeout() {
-    let configuration = AppConfiguration(
-      keepaliveInterval: 5, activityTimeout: 0.8, autoStart: false,
-      defaultAnimation: "nyathing_36x36.png")
-    XCTAssertEqual(NyathingCLI.keepaliveInterval(for: configuration), 0.4, accuracy: 0.0001)
-
-    let shorterConfiguredInterval = AppConfiguration(
-      keepaliveInterval: 0.2, activityTimeout: 3, autoStart: false,
-      defaultAnimation: "nyathing_36x36.png")
-    XCTAssertEqual(NyathingCLI.keepaliveInterval(for: shorterConfiguredInterval), 0.2)
-  }
-
   func testZshCompletionTracksCLICommandsAndDynamicAnimations() throws {
     let script = try XCTUnwrap(ShellCompletion.script(for: "zsh"))
 
@@ -399,15 +387,17 @@ final class LocalAPIServerTests: XCTestCase {
     let lock = NSLock()
     var startedAnimations: [String] = []
     var startedDescriptions: [String?] = []
+    var startedTimeouts: [Double] = []
     var stoppedIDs: [String] = []
     let server = LocalAPIServer(
       socketPath: socketPath,
       defaultAnimation: "nyan_54x36.png",
-      onStart: { animation, description, _, _ in
+      onStart: { animation, description, timeout in
         lock.lock()
         defer { lock.unlock() }
         startedAnimations.append(animation)
         startedDescriptions.append(description)
+        startedTimeouts.append(timeout)
         return "activity-\(startedAnimations.count)"
       }, onKeepalive: { _ in },
       onStop: { id in
@@ -419,11 +409,12 @@ final class LocalAPIServerTests: XCTestCase {
     defer { server.stop() }
 
     let first = try UnixJSONClient(path: socketPath)
-    XCTAssertEqual(
-      try first.command([
-        "command": "start", "animation": "same_36x36.png", "description": "first client",
-      ])["activity_id"] as? String,
-      "activity-1")
+    let firstStart = try first.command([
+      "command": "start", "animation": "same_36x36.png", "description": "first client",
+      "keepalive_interval_seconds": 8, "activity_timeout_seconds": 10,
+    ])
+    XCTAssertEqual(firstStart["activity_id"] as? String, "activity-1")
+    XCTAssertEqual(firstStart["keepalive_interval_seconds"] as? Double, 5)
     XCTAssertEqual(
       try first.command(["command": "keepalive", "activity_id": "activity-1"])["ok"] as? Bool,
       true)
@@ -431,10 +422,9 @@ final class LocalAPIServerTests: XCTestCase {
       try first.command(["command": "stop", "activity_id": "activity-1"])["ok"] as? Bool, true)
 
     let second = try UnixJSONClient(path: socketPath)
-    XCTAssertEqual(
-      try second.command(["command": "start", "animation": "same_36x36.png"])["activity_id"]
-        as? String,
-      "activity-2")
+    let secondStart = try second.command(["command": "start", "animation": "same_36x36.png"])
+    XCTAssertEqual(secondStart["activity_id"] as? String, "activity-2")
+    XCTAssertEqual(secondStart["keepalive_interval_seconds"] as? Double, 2.5)
     XCTAssertEqual(
       try second.command(["command": "start"])["activity_id"] as? String,
       "activity-3")
@@ -443,6 +433,7 @@ final class LocalAPIServerTests: XCTestCase {
       startedAnimations, ["same_36x36.png", "same_36x36.png", "nyan_54x36.png"])
     XCTAssertEqual(stoppedIDs, ["activity-1"])
     XCTAssertEqual(startedDescriptions, ["first client", nil, nil])
+    XCTAssertEqual(startedTimeouts, [10, 5, 5])
     lock.unlock()
 
     let responseLock = NSLock()
@@ -491,7 +482,7 @@ private final class UnixJSONClient {
 
   deinit { Darwin.close(descriptor) }
 
-  func command(_ request: [String: String]) throws -> [String: Any] {
+  func command(_ request: [String: Any]) throws -> [String: Any] {
     var data = try JSONSerialization.data(withJSONObject: request)
     data.append(0x0A)
     let written = data.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress!, $0.count) }

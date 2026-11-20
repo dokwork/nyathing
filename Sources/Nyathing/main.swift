@@ -337,7 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       defaultAnimation: defaultAnimation,
       defaultKeepaliveInterval: keepaliveInterval,
       defaultActivityTimeout: activityTimeout,
-      onStart: { [weak self] filename, description, _, timeout in
+      onStart: { [weak self] filename, description, timeout in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
           return self.startActivity(
@@ -410,10 +410,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     let frames: [NSImage]
+    let sourceFrames: [NSImage]
     switch AnimationResolution.resolve(resolvedFilename, available: animations) {
-    case .asset(let animation): frames = animation.frames
-    case .builtInGhost: frames = Self.builtInGhostFrames()
+    case .asset(let animation): sourceFrames = animation.frames
+    case .builtInGhost: sourceFrames = Self.builtInGhostFrames()
     }
+    frames = Self.scaledAnimationFrames(sourceFrames, height: 22)
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     configureMenu(for: statusItem)
     let active = ActiveAnimation(
@@ -453,6 +455,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     updateMainStatusItemVisibility()
     updateMainStatusItem()
     refreshErrorsWindow()
+  }
+
+  private static func scaledAnimationFrames(_ frames: [NSImage], height: CGFloat) -> [NSImage] {
+    frames.map { frame in
+      let scaled = (frame.copy() as? NSImage) ?? frame
+      let scale = height / frame.size.height
+      scaled.size = NSSize(width: frame.size.width * scale, height: height)
+      return scaled
+    }
   }
 
   private func updateActivityStatus(_ active: ActiveAnimation) {
