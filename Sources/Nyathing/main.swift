@@ -485,13 +485,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
   private func startAPIServer() throws {
     let generation = apiGeneration
+    let animationsDirectory = AppConfiguration.configurationDirectory
+      .appendingPathComponent("animations", isDirectory: true)
+    let serverDefaultAnimation =
+      defaultAnimation == "random"
+      ? defaultAnimation
+      : animationsDirectory.appendingPathComponent(defaultAnimation).standardizedFileURL.path
     apiServer = LocalAPIServer(
-      defaultAnimation: defaultAnimation,
+      defaultAnimation: serverDefaultAnimation,
       defaultActivityTimeout: activityTimeout,
       onStart: { [weak self] filename, description, timeout in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
-          return self.startActivity(
+          return try self.startActivity(
             animation: filename, description: description, activityTimeout: timeout
           ).uuidString
         }
@@ -534,14 +540,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   func startActivity(
     animation filename: String, description: String? = nil,
     activityTimeout timeout: TimeInterval? = nil
-  ) -> UUID {
+  ) throws -> UUID {
     let directory = AppConfiguration.configurationDirectory.appendingPathComponent(
       "animations", isDirectory: true)
-    let animations = SpriteAnimation.loadAll(in: directory)
-    let resolvedFilename =
-      filename == "random"
-      ? (try? NyathingCLI.resolveAnimation(filename, in: directory)) ?? filename
-      : filename
+    let resolvedFilename = try NyathingCLI.resolveAnimation(filename, in: directory)
+    let existingAnimation = activeAnimations[resolvedFilename]
+    let frames: [NSImage]?
+    if existingAnimation == nil {
+      let sourceFrames: [NSImage]
+      if resolvedFilename == NyathingCLI.builtInGhostAnimation {
+        sourceFrames = Self.builtInGhostFrames()
+      } else {
+        sourceFrames = try SpriteAnimation.load(from: URL(fileURLWithPath: resolvedFilename)).frames
+      }
+      frames = Self.scaledAnimationFrames(sourceFrames, height: 22)
+    } else {
+      frames = nil
+    }
+
     let timeout = timeout ?? activityTimeout
     let deadline = DispatchTime.now() + timeout
     let deadlineUptime = deadline.uptimeNanoseconds
@@ -551,7 +567,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     nextActivityStartOrder &+= 1
     activityTimeouts[id] = timeout
     scheduleActivityExpiration(id, deadlineUptime: deadlineUptime)
-    if let active = activeAnimations[resolvedFilename] {
+    if let active = existingAnimation {
       active.activityIDs.insert(id)
       updateActivityStatus(active)
       updateMainStatusItemVisibility()
@@ -560,13 +576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       return id
     }
 
-    let frames: [NSImage]
-    let sourceFrames: [NSImage]
-    switch AnimationResolution.resolve(resolvedFilename, available: animations) {
-    case .asset(let animation): sourceFrames = animation.frames
-    case .builtInGhost: sourceFrames = Self.builtInGhostFrames()
-    }
-    frames = Self.scaledAnimationFrames(sourceFrames, height: 22)
+    guard let frames else { preconditionFailure("New animations must have decoded frames.") }
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     configureMenu(for: statusItem)
     let active = ActiveAnimation(

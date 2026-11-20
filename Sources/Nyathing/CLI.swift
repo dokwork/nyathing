@@ -49,7 +49,7 @@ struct CLIArguments {
         \(version)
 
       Usage:
-        nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]
+        nyathing [--animation NAME | -a NAME] COMMAND [ARGUMENT ...]
         nyathing uninstall
         nyathing server start|stop|status
         nyathing list
@@ -65,19 +65,19 @@ struct CLIArguments {
         completion SHELL        Print shell completion code for zsh or bash.
 
       Options:
-        -a, --animation FILE    Select an animation from the user animations folder.
+        -a, --animation NAME     Select a short animation name or path to a PNG.
         --help                  Show this help.
         --version               Show the app version.
 
       Examples:
         nyathing sleep 5
-        nyathing --animation nyan_54x36.png make test
+        nyathing --animation nyan make test
       """
   }
 
   static func parse(_ arguments: [String]) throws -> CLIArguments {
     var values = arguments
-    var animation = "nyathing_36x36.png"
+    var animation = "nyathing"
     if values.first == "--animation" || values.first == "-a" {
       guard values.count >= 3, !values[1].isEmpty else { throw CLIError.usage }
       animation = values[1]
@@ -241,23 +241,38 @@ enum NyathingCLI {
   }
 
   static func resolveAnimation(_ name: String, in directory: URL) throws -> String {
-    guard !name.contains("/"), !name.contains("\\") else {
-      throw CLIError.animationUnavailable(
-        name, "must be a filename, not a path. Use 'nyathing list' to see available animations.")
-    }
     if name == "random" {
       if let namedAnimation = try? resolveNamedAnimation(name, in: directory) {
         return namedAnimation
       }
       let available = SpriteAnimation.loadAll(in: directory)
-      return available.keys.sorted().randomElement() ?? builtInGhostAnimation
+      return available.keys.sorted().randomElement().map {
+        directory.appendingPathComponent($0).standardizedFileURL.path
+      } ?? builtInGhostAnimation
     }
-    return try resolveNamedAnimation(name, in: directory)
+    if isShortAnimationName(name) {
+      return try resolveNamedAnimation(name, in: directory)
+    }
+    let path = URL(
+      fileURLWithPath: (name as NSString).expandingTildeInPath,
+      relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    ).standardizedFileURL
+    do {
+      _ = try SpriteAnimation.load(from: path)
+      return path.path
+    } catch {
+      throw CLIError.animationUnavailable(
+        name, "could not load animation file: \(error.localizedDescription).")
+    }
+  }
+
+  private static func isShortAnimationName(_ name: String) -> Bool {
+    !name.contains("/") && !name.contains("\\")
+      && URL(fileURLWithPath: name).pathExtension.isEmpty
+      && name.range(of: #"_[0-9]+x[0-9]+$"#, options: .regularExpression) == nil
   }
 
   private static func resolveNamedAnimation(_ name: String, in directory: URL) throws -> String {
-    let stem = name.replacingOccurrences(
-      of: #"_(?:36x36|54x36)\.png$"#, with: "", options: [.caseInsensitive, .regularExpression])
     guard
       let files = try? FileManager.default.contentsOfDirectory(
         at: directory, includingPropertiesForKeys: nil)
@@ -267,22 +282,48 @@ enum NyathingCLI {
         "could not be checked because the animations directory is unavailable at \(directory.path)."
       )
     }
-    for size in ["54x36", "36x36"] {
-      let expected = "\(stem)_\(size).png"
+
+    let pattern =
+      "^\(NSRegularExpression.escapedPattern(for: name))_([0-9]+)x([0-9]+)\\.png$"
+    guard
+      let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    else {
+      throw CLIError.animationUnavailable(name, "could not be resolved to a filename.")
+    }
+    let candidates = files.compactMap { file -> (url: URL, width: Int, height: Int)? in
+      let filename = file.lastPathComponent
       guard
-        let file = files.first(where: {
-          $0.lastPathComponent.caseInsensitiveCompare(expected) == .orderedSame
-        })
-      else { continue }
+        let match = regex.firstMatch(
+          in: filename, range: NSRange(filename.startIndex..., in: filename)),
+        let widthRange = Range(match.range(at: 1), in: filename),
+        let heightRange = Range(match.range(at: 2), in: filename),
+        let width = Int(filename[widthRange]), let height = Int(filename[heightRange])
+      else { return nil }
+      return (file, width, height)
+    }.sorted {
+      let leftArea = Double($0.width) * Double($0.height)
+      let rightArea = Double($1.width) * Double($1.height)
+      if leftArea != rightArea { return leftArea > rightArea }
+      if $0.width != $1.width { return $0.width > $1.width }
+      return $0.url.lastPathComponent < $1.url.lastPathComponent
+    }
+
+    var invalidAssetError: Error?
+    for candidate in candidates {
       do {
-        return try SpriteAnimation.load(from: file).filename
+        _ = try SpriteAnimation.load(from: candidate.url)
+        return candidate.url.standardizedFileURL.path
       } catch {
-        throw CLIError.animationUnavailable(name, "is invalid: \(error.localizedDescription).")
+        invalidAssetError = invalidAssetError ?? error
       }
+    }
+    if let invalidAssetError {
+      throw CLIError.animationUnavailable(
+        name, "has no valid matching animation: \(invalidAssetError.localizedDescription).")
     }
     throw CLIError.animationUnavailable(
       name,
-      "was not found in \(directory.path). Expected a valid '*_36x36.png' or '*_54x36.png' file. Use 'nyathing list' to see available animations."
+      "was not found in \(directory.path). Use 'nyathing list' to see available animations."
     )
   }
 

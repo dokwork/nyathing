@@ -75,9 +75,11 @@ try:
     timeout = configured_seconds(settings, "activity_timeout_seconds", 30.0)
     animations = os.environ.get("ANIMATIONS", "").replace(",", " ").split()
     if not animations:
-        animation = os.environ.get("ANIMATION") or configured_value(
-            settings, "default_animation", "nyathing_36x36.png"
-        )
+        animation = os.environ.get("ANIMATION")
+        if animation is None:
+            animation = configured_value(settings, "default_animation", "nyathing_36x36.png")
+            if animation != "random":
+                animation = str(config_path.parent / "animations" / animation)
         animations = [animation]
     for animation in animations:
         activity_id = request({

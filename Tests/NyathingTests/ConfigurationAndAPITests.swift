@@ -46,11 +46,21 @@ final class CLITests: XCTestCase {
     _ = try AppConfiguration.load(in: directory)
     let animationsDirectory = directory.appendingPathComponent("animations", isDirectory: true)
 
-    XCTAssertNoThrow(try NyathingCLI.validateAnimation("nyan_54x36.png", in: animationsDirectory))
+    XCTAssertNoThrow(try NyathingCLI.validateAnimation("nyan", in: animationsDirectory))
     XCTAssertThrowsError(
-      try NyathingCLI.validateAnimation("missing_36x36.png", in: animationsDirectory))
+      try NyathingCLI.validateAnimation("missing", in: animationsDirectory))
+
+    let externalDirectory = directory.appendingPathComponent("external")
+    try FileManager.default.createDirectory(
+      at: externalDirectory, withIntermediateDirectories: true)
+    let externalAnimation = externalDirectory.appendingPathComponent("outside_54x36.png")
+    try FileManager.default.copyItem(
+      at: animationsDirectory.appendingPathComponent("nyan_54x36.png"), to: externalAnimation)
+    XCTAssertNoThrow(
+      try NyathingCLI.validateAnimation(externalAnimation.path, in: animationsDirectory))
     XCTAssertThrowsError(
-      try NyathingCLI.validateAnimation("../nyan_54x36.png", in: animationsDirectory))
+      try NyathingCLI.validateAnimation(
+        externalAnimation.lastPathComponent, in: animationsDirectory))
   }
 
   func testRandomAnimationSelectsFromAvailableAnimations() throws {
@@ -64,7 +74,7 @@ final class CLITests: XCTestCase {
     let selected = try NyathingCLI.resolveAnimation("random", in: animationsDirectory)
 
     XCTAssertFalse(listedAnimations.isEmpty)
-    XCTAssertTrue(listedAnimations.contains(selected))
+    XCTAssertTrue(listedAnimations.contains(URL(fileURLWithPath: selected).lastPathComponent))
   }
 
   func testNamedRandomAnimationTakesPrecedence() throws {
@@ -78,7 +88,8 @@ final class CLITests: XCTestCase {
       at: animationsDirectory.appendingPathComponent("nyathing_36x36.png"), to: randomAnimation)
 
     XCTAssertEqual(
-      try NyathingCLI.resolveAnimation("random", in: animationsDirectory), "random_36x36.png")
+      try NyathingCLI.resolveAnimation("random", in: animationsDirectory),
+      randomAnimation.standardizedFileURL.path)
   }
 
   func testRandomAnimationFallsBackToBuiltInGhostWhenPoolIsEmpty() throws {
@@ -244,6 +255,20 @@ final class ConfigurationTests: XCTestCase {
 
     XCTAssertEqual(animation.frameSize, NSSize(width: 64, height: 48))
     XCTAssertEqual(animation.frames.count, 2)
+  }
+
+  func testShortAnimationNameResolvesLargestValidFrame() throws {
+    _ = try AppConfiguration.load(in: temporaryDirectory)
+    let animationsDirectory = temporaryDirectory.appendingPathComponent("animations")
+    let largerAnimation = animationsDirectory.appendingPathComponent("nyathing_64x48.png")
+    try writePNG(width: 128, height: 48, to: largerAnimation)
+
+    XCTAssertEqual(
+      try NyathingCLI.resolveAnimation("nyathing", in: animationsDirectory),
+      largerAnimation.standardizedFileURL.path)
+    XCTAssertEqual(
+      try NyathingCLI.resolveAnimation("nyathing", in: animationsDirectory),
+      try NyathingCLI.resolveAnimation(largerAnimation.path, in: animationsDirectory))
   }
 
   func testRejectsFrameDimensionsOutsideSupportedBounds() {

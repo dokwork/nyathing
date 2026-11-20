@@ -81,20 +81,20 @@ custom animation:
   nyathing --animation nyan sleep 5
 ```
 
-`--animation` (or `-a`) selects an animation from Nyathing's user animation
-directory. You can use the short name before the frame-size suffix and `.png`
-(for example, `nyan` instead of `nyan_54x36.png`). If both `nyan_36x36.png`
-and `nyan_54x36.png` exist, Nyathing chooses the larger `54x36` animation.
-Without `--animation`, the CLI uses `nyathing_36x36.png`, regardless of the
-configured server default.
+`--animation` (or `-a`) selects an animation. A short name without the frame
+size suffix or `.png` (for example, `nyan`) is looked up in Nyathing's user
+animation directory. If multiple valid files share that name, Nyathing chooses
+the frame with the largest pixel area. Any other value is treated as a path to
+an animation file; relative paths are resolved from the current directory.
+Without `--animation`, the CLI uses the short name `nyathing`, regardless of
+the configured server default.
 
 Set `--animation` to `random` to choose a random valid animation from the user
 animations directory for that run.
 
-If a valid `random_36x36.png` or `random_54x36.png` exists, Nyathing plays that
-named animation, preferring `54x36` when both are available. Otherwise, it
-chooses randomly from the valid user animations. If none are available, Nyathing
-uses its built-in ghost animation:
+If valid files named `random_<width>x<height>.png` exist, Nyathing plays the
+largest matching animation. Otherwise, it chooses randomly from valid user
+animations. If none are available, Nyathing uses its built-in ghost animation:
 
 ```sh
   nyathing --animation random sleep 5
@@ -225,18 +225,24 @@ messages are supported:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `command` | string | Yes | Must be `start`. |
-| `animation` | string | No | Animation filename. Defaults to the server's configured animation; unavailable or invalid names use the built-in ghost. |
+| `animation` | string | No | Short name searched in the server's animation directory, or a path to a PNG sprite sheet. Defaults to the server's configured animation. Invalid explicit values return an error. |
 | `description` | string | No | Description shown for the activity. If omitted or not a string, the server uses its default description. |
 | `keepalive_interval_seconds` | number | Yes | Positive, finite interval in seconds at which the client sends keepalives. Must be less than the server's configured `activity_timeout_seconds`. |
+
+A short name without a frame-size suffix or `.png` is resolved in the server's
+animation directory. Other values are treated as file paths; relative paths
+are resolved from the server process's current working directory. `random`
+selects a random valid animation, falling back to the built-in ghost if none
+are available.
 
 Examples:
 
 ```json
-{"command":"start","animation":"nyan_54x36.png","keepalive_interval_seconds":5}
+{"command":"start","animation":"nyan","keepalive_interval_seconds":5}
 ```
 or
 ```json
-{"command":"start","animation":"nyan_54x36.png","description":"make test","keepalive_interval_seconds":5}
+{"command":"start","animation":"nyan","description":"make test","keepalive_interval_seconds":5}
 ```
 
 #### `keepalive` request
@@ -315,7 +321,11 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         stream.write(json.dumps(value).encode() + b"\n")
         stream.flush()
         return json.loads(stream.readline())
-    activity = command({"command": "start", "animation": "nyan_54x36.png", "keepalive_interval_seconds": 5})["activity_id"]
+    activity = command({
+        "command": "start",
+        "animation": "nyan",
+        "keepalive_interval_seconds": 5,
+    })["activity_id"]
     command({"command": "keepalive", "activity_id": activity})
     command({"command": "stop", "activity_id": activity})
 ```
