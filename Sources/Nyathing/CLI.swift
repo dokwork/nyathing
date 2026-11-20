@@ -52,6 +52,7 @@ struct CLIArguments {
         nyathing [--animation NAME | -a NAME] COMMAND [ARGUMENT ...]
         nyathing uninstall
         nyathing server start|stop|status
+        nyathing client start|keepalive|stop
         nyathing list
         nyathing completion zsh|bash
         nyathing --help
@@ -61,6 +62,7 @@ struct CLIArguments {
         COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
         uninstall               Remove the installed app and CLI command.
         server                  Manage the background server (start, stop, status).
+        client                  Start, refresh, or stop an activity.
         list                    List available valid animations.
         completion SHELL        Print shell completion code for zsh or bash.
 
@@ -68,6 +70,12 @@ struct CLIArguments {
         -a, --animation NAME     Select a short animation name or path to a PNG.
         --help                  Show this help.
         --version               Show the app version.
+
+      Client usage:
+        nyathing client start [--animation NAME] [--description TEXT]
+                              [--keepalive-interval SECONDS]
+        nyathing client keepalive ACTIVITY_ID
+        nyathing client stop ACTIVITY_ID
 
       Examples:
         nyathing sleep 5
@@ -131,6 +139,9 @@ enum NyathingCLI {
       return 0
     }
     do {
+      if arguments.first == "client" {
+        return try executeClient(Array(arguments.dropFirst()))
+      }
       if arguments.count == 2, arguments[0] == "server" {
         let configurationDirectory = AppConfiguration.configurationDirectory
         switch arguments[1] {
@@ -171,6 +182,66 @@ enum NyathingCLI {
     } catch {
       FileHandle.standardError.write(Data("nyathing: \(error.localizedDescription)\n".utf8))
       return 1
+    }
+  }
+
+  private static func executeClient(_ arguments: [String]) throws -> Int32 {
+    guard let subcommand = arguments.first else { throw CLIError.usage }
+    switch subcommand {
+    case "start":
+      var animation: String?
+      var description: String?
+      var interval: Double?
+      var index = 1
+      while index < arguments.count {
+        let option = arguments[index]
+        guard index + 1 < arguments.count else { throw CLIError.usage }
+        let value = arguments[index + 1]
+        guard !value.isEmpty else { throw CLIError.usage }
+        switch option {
+        case "--animation", "-a":
+          guard animation == nil else { throw CLIError.usage }
+          if value == "random" || isShortAnimationName(value) {
+            animation = value
+          } else {
+            let directory = AppConfiguration.configurationDirectory
+              .appendingPathComponent("animations", isDirectory: true)
+            animation = try resolveAnimation(value, in: directory)
+          }
+        case "--description":
+          guard description == nil else { throw CLIError.usage }
+          description = value
+        case "--keepalive-interval":
+          guard interval == nil, let parsed = Double(value), parsed.isFinite, parsed > 0
+          else { throw CLIError.usage }
+          interval = parsed
+        default:
+          throw CLIError.usage
+        }
+        index += 2
+      }
+      var request: [String: Any] = ["command": "start"]
+      if let animation { request["animation"] = animation }
+      if let description { request["description"] = description }
+      if let interval { request["keepalive_interval_seconds"] = NSNumber(value: interval) }
+      let client = try LocalAPIClient.connectOrStartServer()
+      guard let activityID = try client.command(request)["activity_id"] as? String else {
+        throw CLIError.api("The server returned an invalid activity response.")
+      }
+      print(activityID)
+      return 0
+    case "keepalive", "stop":
+      guard arguments.count == 2, !arguments[1].isEmpty else { throw CLIError.usage }
+      let client = try LocalAPIClient.connectOrStartServer()
+      let response = try client.command([
+        "command": subcommand, "activity_id": arguments[1],
+      ])
+      guard response["ok"] as? Bool == true else {
+        throw CLIError.api(response["error"] as? String ?? "The server rejected the request.")
+      }
+      return 0
+    default:
+      throw CLIError.usage
     }
   }
 
@@ -372,7 +443,7 @@ enum NyathingCLI {
 }
 
 enum ShellCompletion {
-  static let supportedCommands = ["server", "list", "uninstall", "completion"]
+  static let supportedCommands = ["server", "client", "list", "uninstall", "completion"]
 
   static func script(for shell: String) -> String? {
     let commands = supportedCommands.joined(separator: " ")
@@ -393,6 +464,10 @@ enum ShellCompletion {
               ;;
             server)
               compadd -- start stop status
+              return
+              ;;
+            client)
+              compadd -- start keepalive stop
               return
               ;;
             completion)
@@ -424,6 +499,10 @@ enum ShellCompletion {
               ;;
             server)
               COMPREPLY=( $(compgen -W "start stop status" -- "$cur") )
+              return
+              ;;
+            client)
+              COMPREPLY=( $(compgen -W "start keepalive stop" -- "$cur") )
               return
               ;;
             completion)

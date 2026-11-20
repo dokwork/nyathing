@@ -109,6 +109,22 @@ List valid installed animations by short name with:
   nyathing list
 ```
 
+### Manage activities directly
+
+Use `client` commands to control an activity without wrapping a process:
+
+```sh
+nyathing client start --animation nyan --description "Test"
+nyathing client keepalive ACTIVITY_ID
+nyathing client stop ACTIVITY_ID
+```
+
+`start` prints the activity ID. Send `keepalive` at least once per requested
+interval (5 seconds by default), and use `stop` when done.
+The server starts automatically if it is not already running; abandoned
+activities expire according to `max_wait_time`. `start` also accepts
+`--keepalive-interval SECONDS` to override the default for that activity.
+
 To view available options or check the installed version:
 
 ```sh

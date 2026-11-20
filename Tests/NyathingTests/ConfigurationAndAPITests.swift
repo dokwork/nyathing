@@ -123,6 +123,7 @@ final class CLITests: XCTestCase {
     }
     XCTAssertTrue(script.contains("nyathing list"))
     XCTAssertTrue(script.contains("start stop status"))
+    XCTAssertTrue(script.contains("start keepalive stop"))
     XCTAssertTrue(script.contains("compadd -- zsh bash"))
   }
 
@@ -134,6 +135,7 @@ final class CLITests: XCTestCase {
     }
     XCTAssertTrue(script.contains("nyathing list"))
     XCTAssertTrue(script.contains("start stop status"))
+    XCTAssertTrue(script.contains("start keepalive stop"))
     XCTAssertTrue(script.contains("zsh bash"))
   }
 
