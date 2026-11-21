@@ -10,7 +10,7 @@ help:
 	  '  lint             Check Swift formatting' \
 	  '  test             Run the Swift test suite' \
 	  '  archive          Build a downloadable CLI archive' \
-	  '  run              Run animations for five seconds (ANIMATIONS="a b" optional)' \
+	  '  run              Run animations (DURATION=5 seconds; ANIMATIONS="a b" optional)' \
 	  '  install          Build and install the CLI in $(PREFIX)/bin' \
 	  '  uninstall        Remove the CLI and legacy app (keeps user data)' \
 	  '  reinstall        Reinstall Nyathing using the selected PREFIX'
@@ -37,6 +37,8 @@ uninstall:
 
 reinstall: uninstall install
 
+DURATION ?= 5
+
 run:
 	swift build
-	ANIMATION='$(ANIMATION)' ANIMATIONS='$(ANIMATIONS)' python3 Scripts/run-test-animation.py
+	ANIMATION='$(ANIMATION)' ANIMATIONS='$(ANIMATIONS)' DURATION='$(DURATION)' python3 Scripts/run-test-animation.py

@@ -2,6 +2,11 @@
 set -euo pipefail
 
 prefix="${PREFIX:-/usr/local}"
+if [[ "$prefix" != /* || "$prefix" == / || "$prefix" == "$HOME" \
+  || "$prefix" == "$HOME"/* || "/$prefix/" == */../* ]]; then
+  echo "Refusing unsafe PREFIX: $prefix" >&2
+  exit 1
+fi
 bin_dir="$prefix/bin"
 cli_path="$bin_dir/nyathing"
 libexec_dir="$prefix/libexec/nyathing"
@@ -20,6 +25,13 @@ done
 
 remove_path() {
   local path="$1" parent="$(dirname "$1")"
+  case "$path" in
+    "$cli_path"|"$libexec_dir"|"$legacy_app_path"|"$launch_agent") ;;
+    *) echo "Refusing to remove unexpected path: $path" >&2; return 1 ;;
+  esac
+  [[ "$path" != / && -n "$path" ]] || {
+    echo "Refusing unsafe removal path: $path" >&2; return 1;
+  }
   [[ -e "$path" || -L "$path" ]] || return 0
   while [[ ! -e "$parent" ]]; do parent="$(dirname "$parent")"; done
   if [[ -w "$parent" ]]; then

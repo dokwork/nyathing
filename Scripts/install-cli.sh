@@ -4,13 +4,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 PREFIX="${PREFIX:-/usr/local}"
+if [[ "$PREFIX" != /* || "$PREFIX" == / || "$PREFIX" == "$HOME" \
+  || "$PREFIX" == "$HOME"/* || "/$PREFIX/" == */../* ]]; then
+  echo "Refusing unsafe PREFIX: $PREFIX" >&2
+  exit 1
+fi
 SOURCE_DIR="${1:-}"
 
 if [[ -z "$SOURCE_DIR" ]]; then
   swift build -c release
   SOURCE_DIR="$ROOT/.build/release"
 fi
-SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
+[[ -d "$SOURCE_DIR" && ! -L "$SOURCE_DIR" ]] || {
+  echo "Invalid install source directory: $SOURCE_DIR" >&2; exit 1;
+}
+SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd -P)"
 BIN_DIR="$PREFIX/bin"
 LIBEXEC_DIR="$PREFIX/libexec/nyathing"
 
@@ -34,7 +42,13 @@ run_install() {
 
 run_install mkdir -p "$BIN_DIR" "$LIBEXEC_DIR"
 run_install install -m 755 "$SOURCE_DIR/nyathing" "$LIBEXEC_DIR/nyathing"
-run_install rm -rf "$LIBEXEC_DIR/Nyathing_Nyathing.bundle"
+bundle_path="$LIBEXEC_DIR/Nyathing_Nyathing.bundle"
+if [[ -e "$bundle_path" || -L "$bundle_path" ]]; then
+  [[ ! -L "$bundle_path" && "$bundle_path" == "$PREFIX/libexec/nyathing/Nyathing_Nyathing.bundle" ]] || {
+    echo "Refusing to remove unexpected bundle path: $bundle_path" >&2; exit 1;
+  }
+  run_install rm -rf -- "$bundle_path"
+fi
 run_install ditto "$SOURCE_DIR/Nyathing_Nyathing.bundle" \
   "$LIBEXEC_DIR/Nyathing_Nyathing.bundle"
 
@@ -43,8 +57,15 @@ wrapper_content='#!/bin/sh
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 exec "$SCRIPT_DIR/../libexec/nyathing/nyathing" "$@"
 '
-wrapper_tmp="$(mktemp)"
-trap 'rm -f "$wrapper_tmp"' EXIT
+wrapper_tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/nyathing-install.XXXXXX")"
+wrapper_tmp="$wrapper_tmp_dir/wrapper"
+cleanup() {
+  case "$wrapper_tmp_dir" in
+    "${TMPDIR:-/tmp}"/nyathing-install.*) rm -rf -- "$wrapper_tmp_dir" ;;
+    *) echo "Refusing to remove unexpected temporary path: $wrapper_tmp_dir" >&2; exit 1 ;;
+  esac
+}
+trap cleanup EXIT
 printf '%s' "$wrapper_content" > "$wrapper_tmp"
 run_install install -m 755 "$wrapper_tmp" "$wrapper"
 echo "Installed nyathing in $BIN_DIR (resources in $LIBEXEC_DIR)."

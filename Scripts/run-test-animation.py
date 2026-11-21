@@ -68,6 +68,13 @@ try:
 
     settings = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     interval = 5.0
+    try:
+        duration = float(os.environ.get("DURATION", "5"))
+    except ValueError as error:
+        raise ValueError("DURATION must be a positive number of seconds") from error
+    if not 0 < duration < float("inf"):
+        raise ValueError("DURATION must be a positive finite number of seconds")
+
     animations = os.environ.get("ANIMATIONS", "").replace(",", " ").split()
     if not animations:
         animation = os.environ.get("ANIMATION")
@@ -86,7 +93,7 @@ try:
         print(f"Started {animation} ({activity_id})")
 
     keepalive_delay = interval
-    run_deadline = time.monotonic() + 5
+    run_deadline = time.monotonic() + duration
     while time.monotonic() < run_deadline:
         time.sleep(min(keepalive_delay, run_deadline - time.monotonic()))
         for activity_id in activity_ids:
