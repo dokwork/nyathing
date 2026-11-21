@@ -23,15 +23,6 @@ To remove the installed app and command, run in terminal:
 nyathing uninstall
 ```
 
-Uninstall requests administrator authorization. It asks
-`Remove Nyathing configuration and user animations? [y/N]`; the default is no.
-Answering no preserves configuration and animations while still removing the
-app and CLI symlink. The app is closed as part of removal.
-
-If the built-in uninstall does not complete, run `make uninstall` from the
-repository root. This force-removal fallback requires administrator
-authorization and removes the app, CLI command, configuration, and logs.
-
 **👮🏻‍♂️ Note**
 
 The app and package are **unsigned** and not notarized, so macOS may block the
@@ -49,6 +40,30 @@ to enter your password or confirm with Touch ID.
 Alternatively, build and run `Nyathing` locally using the instructions in
 [Build from source](#build-from-source); locally built apps are not quarantined.
 
+## ⚒ Build from source
+
+Requires macOS 12+ and Swift 5.9 or later. Run the commands below from the
+repository root.
+
+### Install from source
+
+Install the menu-bar app in `/Applications`:
+
+```sh
+make install-app
+```
+
+To run Nyathing from a terminal, also create the CLI symlink in
+`/usr/local/bin`:
+
+```sh
+make install-cli-link
+```
+
+The CLI symlink requires the app to be installed first. Each command asks
+before replacing an existing app or symlink and requires administrator
+authorization to install its files.
+
 ## Nyathing server
 
 <p align="right"><img src="assets/nyathing-server.png" alt="nyathing-server" height=80></p>
@@ -61,10 +76,80 @@ current user, and the server checks the connecting process's user ID.
 Exchange UTF-8 JSON Lines: send one JSON object followed by a newline (`\n`);
 Nyathing returns one JSON object followed by a newline for each request. A
 connection can carry multiple request/response pairs, and multiple clients may
-connect at the same time. Request lines are limited to 1 MiB.
+connect at the same time. 
+
+For convenience, Nyathing also implements the client side of the protocol. See
+[Nyathing client](#nyathing-client) for details.
 
 For the complete message formats, field requirements, and response schemas,
 see [Server communication protocol](#server-communication-protocol). 
+
+## Nyathing client
+
+<p align="right"><img src="assets/nyathing-client.png" alt="nyathing-client" height=80></p>
+
+For convenience, Nyathing includes a client for communicating with the server
+without having to implement the protocol yourself.
+
+Use `client` commands to control an activity without wrapping a process:
+
+```sh
+nyathing client start 
+```
+
+The server starts automatically if it is not already running.
+On `start` nyathing prints the activity ID. 
+
+Send `keepalive` at least once per requested
+interval (5 seconds by default) to keep animation, and use `stop` when done.
+
+```sh
+nyathing client keepalive ACTIVITY_ID
+nyathing client stop ACTIVITY_ID
+```
+
+Abandoned activities expire according to `max_wait_time`. `start` also accepts
+`--keepalive-interval SECONDS` to override the default for that activity.
+
+### How to choose an animation 
+
+You can explicitly specify an animation on start:
+
+```sh
+nyathing client start --animation nyan --description "Test"
+```
+
+`--animation` (or `-a`) selects an animation. A short name without the frame
+size suffix or `.png` (for example, `nyan`) is looked up in Nyathing's user
+animation directory. If multiple valid files share that name, Nyathing chooses
+the frame with the largest pixel area. Any other value is treated as a path to
+an animation file; relative paths are resolved from the current directory.
+See [Animation file format](#-animation-file-format) for more details about file format.
+Without `--animation`, a configured default animation is used.
+
+Set `--animation` to `random` to choose a random valid animation from the user
+animations directory for that run.
+
+```sh
+  nyathing --animation random sleep 5
+```
+
+If valid files named `random_<width>x<height>.png` exist, Nyathing plays the
+largest matching animation. Otherwise, it chooses randomly from valid user
+animations. If none are available, Nyathing uses its built-in ghost animation.
+
+Quote paths containing spaces as usual in your shell. Relative command paths
+are resolved from the current working directory.
+
+### Describe a client
+
+Active animations appear in the menu with a shortened version of their
+descriptions. Add a description when starting a client to make it easier to
+identify the activity:
+
+```sh
+nyathing client start --description "Running tests"
+```
 
 ## Nyathing CLI
 
@@ -81,49 +166,11 @@ custom animation:
   nyathing --animation nyan sleep 5
 ```
 
-`--animation` (or `-a`) selects an animation. A short name without the frame
-size suffix or `.png` (for example, `nyan`) is looked up in Nyathing's user
-animation directory. If multiple valid files share that name, Nyathing chooses
-the frame with the largest pixel area. Any other value is treated as a path to
-an animation file; relative paths are resolved from the current directory.
-Without `--animation`, the CLI uses the short name `nyathing`, regardless of
-the configured server default.
-
-Set `--animation` to `random` to choose a random valid animation from the user
-animations directory for that run.
-
-If valid files named `random_<width>x<height>.png` exist, Nyathing plays the
-largest matching animation. Otherwise, it chooses randomly from valid user
-animations. If none are available, Nyathing uses its built-in ghost animation:
-
-```sh
-  nyathing --animation random sleep 5
-```
-
-Quote paths containing spaces as usual in your shell. Relative command paths
-are resolved from the current working directory.
-
 List valid installed animations by short name with:
 
 ```sh
   nyathing list
 ```
-
-### Manage activities directly
-
-Use `client` commands to control an activity without wrapping a process:
-
-```sh
-nyathing client start --animation nyan --description "Test"
-nyathing client keepalive ACTIVITY_ID
-nyathing client stop ACTIVITY_ID
-```
-
-`start` prints the activity ID. Send `keepalive` at least once per requested
-interval (5 seconds by default), and use `stop` when done.
-The server starts automatically if it is not already running; abandoned
-activities expire according to `max_wait_time`. `start` also accepts
-`--keepalive-interval SECONDS` to override the default for that activity.
 
 To view available options or check the installed version:
 
@@ -154,17 +201,6 @@ For Bash, add this to `~/.bashrc`:
 The completion script offers Nyathing commands and options, including server
 subcommands. It fetches available animations with `nyathing list` when
 completing an animation argument, so the suggestions reflect installed files.
-
-## Animation file format
-
-Animation files are horizontal PNG sprite sheets. The filename suffix declares
-the dimensions of each frame, for example `nyan_64x48.png`. Each dimension must
-be between 16 and 256 pixels, with an aspect ratio no greater than 3:1. The
-image height must match the declared frame height, and its width must be a
-positive multiple of the declared frame width. Sheets may contain at most 120
-frames and 4 million pixels total. Frames are scaled to fit the menu bar. The
-app validates assets on startup and when settings are accepted; invalid assets
-are ignored and logged. Playback runs at 10 frames per second.
 
 ## ⚙ Configuration
 
@@ -207,6 +243,17 @@ animations; this also clears active activities and the disconnected-client
 count. **Cancel** closes the editor without applying changes. Accepting the
 current settings also reloads animation files changed outside the editor.
 
+## 👾 Animation file format
+
+Animation files are horizontal PNG sprite sheets. The filename suffix declares
+the dimensions of each frame, for example `nyan_64x48.png`. Each dimension must
+be between 16 and 256 pixels, with an aspect ratio no greater than 3:1. The
+image height must match the declared frame height, and its width must be a
+positive multiple of the declared frame width. Sheets may contain at most 120
+frames and 4 million pixels total. Frames are scaled to fit the menu bar. The
+app validates assets on startup and when settings are accepted; invalid assets
+are ignored and logged. Playback runs at 10 frames per second.
+
 ## {} Server communication protocol
 
 The server communicates over a Unix domain `SOCK_STREAM` socket using UTF-8
@@ -229,20 +276,20 @@ Every request has this common envelope:
 The `command` property is required and must be a string. The following command
 messages are supported:
 
-| Command | Description |
-| --- | --- |
-| `start` | Starts an activity and returns its identifier. |
-| `keepalive` | Refreshes an activity's expiration timer. |
-| `stop` | Ends an activity without counting it as a disconnect. |
+| Command     | Description                                           |
+| ---         | ---                                                   |
+| `start`     | Starts an activity and returns its identifier.        |
+| `keepalive` | Refreshes an activity's expiration timer.             |
+| `stop`      | Ends an activity without counting it as a disconnect. |
 
 #### `start` request
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `command` | string | Yes | Must be `start`. |
-| `animation` | string | No | Short name searched in the server's animation directory, or a path to a PNG sprite sheet. Defaults to the server's configured animation. Invalid explicit values return an error. |
-| `description` | string | No | Description shown for the activity. If omitted or not a string, the server uses its default description. |
-| `keepalive_interval_seconds` | number | No | Positive, finite interval in seconds at which the client promises to send keepalives. Defaults to 5 seconds. The activity expires after the smaller of twice this interval and the server's configured `max_wait_time`. |
+| Field                        | Type   | Required | Description                                                                                                                                                                                                             |
+| ---                          | ---    | ---      | ---                                                                                                                                                                                                                     |
+| `command`                    | string | Yes      | Must be `start`.                                                                                                                                                                                                        |
+| `animation`                  | string | No       | Short name searched in the server's animation directory, or a path to a PNG sprite sheet. Defaults to the server's configured animation. Invalid explicit values return an error.                                       |
+| `description`                | string | No       | Description shown for the activity. If omitted or not a string, the server uses its default description.                                                                                                                |
+| `keepalive_interval_seconds` | number | No       | Positive, finite interval in seconds at which the client promises to send keepalives. Defaults to 5 seconds. The activity expires after the smaller of twice this interval and the server's configured `max_wait_time`. |
 
 A short name without a frame-size suffix or `.png` is resolved in the server's
 animation directory. Other values are treated as file paths; relative paths
@@ -262,10 +309,10 @@ or
 
 #### `keepalive` request
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `command` | string | Yes | Must be `keepalive`. |
-| `activity_id` | string (UUID) | Yes | Identifier returned by the corresponding `start` request. |
+| Field         | Type          | Required | Description                                               |
+| ---           | ---           | ---      | ---                                                       |
+| `command`     | string        | Yes      | Must be `keepalive`.                                      |
+| `activity_id` | string (UUID) | Yes      | Identifier returned by the corresponding `start` request. |
 
 Example:
 
@@ -280,10 +327,10 @@ disconnected-client count.
 
 #### `stop` request
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `command` | string | Yes | Must be `stop`. |
-| `activity_id` | string (UUID) | Yes | Identifier returned by the corresponding `start` request. Stopping an activity does not count as a disconnect. |
+| Field         | Type          | Required | Description                                                                                                    |
+| ---           | ---           | ---      | ---                                                                                                            |
+| `command`     | string        | Yes      | Must be `stop`.                                                                                                |
+| `activity_id` | string (UUID) | Yes      | Identifier returned by the corresponding `start` request. Stopping an activity does not count as a disconnect. |
 
 Example:
 
@@ -366,47 +413,3 @@ offer **Open Configuration**. Invalid animation files are logged and ignored.
 If the socket path is already in use, quit the existing instance before
 launching another. After correcting animation files, click **Accept** in the
 **Edit Configuration** window to reload them.
-
-## ⚒ Build from source
-
-Requires macOS 12+ and Swift 5.9 or later. Run the commands below from the
-repository root.
-
-### Run the server
-
-Build and launch the menu-bar server in the background:
-
-```sh
-swift build
-swift run nyathing server start
-swift run nyathing server status
-swift run nyathing server stop
-```
-
-
-### Run the CLI
-
-The CLI runs a command while displaying an activity animation. For example:
-
-```sh
-swift run nyathing sleep 5
-```
-
-### Install from source
-
-Install the menu-bar app in `/Applications`:
-
-```sh
-make install-app
-```
-
-To run Nyathing from a terminal, also create the CLI symlink in
-`/usr/local/bin`:
-
-```sh
-make install-cli-link
-```
-
-The CLI symlink requires the app to be installed first. Each command asks
-before replacing an existing app or symlink and requires administrator
-authorization to install its files.

@@ -34,7 +34,7 @@ private final class KeepaliveFailure {
 }
 
 struct CLIArguments {
-  let animation: String
+  let animation: String?
   let command: String
   let arguments: [String]
 
@@ -85,7 +85,7 @@ struct CLIArguments {
 
   static func parse(_ arguments: [String]) throws -> CLIArguments {
     var values = arguments
-    var animation = "nyathing"
+    var animation: String?
     if values.first == "--animation" || values.first == "-a" {
       guard values.count >= 3, !values[1].isEmpty else { throw CLIError.usage }
       animation = values[1]
@@ -247,10 +247,11 @@ enum NyathingCLI {
 
   private static func execute(_ cli: CLIArguments) throws -> Int32 {
     let executable = try resolveExecutable(cli.command)
-    _ = try AppConfiguration.load()
+    let configuration = try AppConfiguration.load()
     let animationsDirectory = AppConfiguration.configurationDirectory
       .appendingPathComponent("animations", isDirectory: true)
-    let animation = try resolveAnimation(cli.animation, in: animationsDirectory)
+    let animation = try resolveAnimation(
+      cli.animation ?? configuration.defaultAnimation, in: animationsDirectory)
     let keepaliveInterval = LocalAPIServer.defaultKeepaliveInterval
     let client = try LocalAPIClient.connectOrStartServer()
     let activity = try client.command([

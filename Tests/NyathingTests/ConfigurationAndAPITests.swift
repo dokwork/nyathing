@@ -24,6 +24,11 @@ final class CLITests: XCTestCase {
     XCTAssertEqual(dashedCommand.arguments, ["--child-option"])
   }
 
+  func testUsesConfiguredAnimationWhenNoAnimationIsSpecified() throws {
+    let parsed = try CLIArguments.parse(["sleep", "5"])
+    XCTAssertNil(parsed.animation)
+  }
+
   func testRejectsMissingCommandOrAnimationValue() {
     XCTAssertThrowsError(try CLIArguments.parse([]))
     XCTAssertThrowsError(try CLIArguments.parse(["-a", "animation.png"]))
