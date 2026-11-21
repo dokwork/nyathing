@@ -30,7 +30,7 @@ archive:
 PREFIX ?= /usr/local
 
 install:
-	PREFIX='$(PREFIX)' bash Scripts/install-cli.sh
+	PREFIX='$(PREFIX)' bash Scripts/install.sh
 
 uninstall:
 	PREFIX='$(PREFIX)' bash Scripts/force-uninstall.sh

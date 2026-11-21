@@ -28,15 +28,9 @@ cleanup() {
 trap cleanup EXIT
 cp .build/release/nyathing "$STAGING/nyathing"
 cp -R .build/release/Nyathing_Nyathing.bundle "$STAGING/Nyathing_Nyathing.bundle"
-cp Scripts/install-cli.sh "$STAGING/install-cli.sh"
+cp Scripts/install.sh "$STAGING/install.sh"
 cp Scripts/force-uninstall.sh "$STAGING/uninstall.sh"
-cat > "$STAGING/install.sh" <<'INSTALLER'
-#!/bin/bash
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PREFIX="${PREFIX:-/usr/local}" bash "$SCRIPT_DIR/install-cli.sh" "$SCRIPT_DIR"
-INSTALLER
-chmod 755 "$STAGING/install.sh" "$STAGING/install-cli.sh" "$STAGING/uninstall.sh"
+chmod 755 "$STAGING/install.sh" "$STAGING/uninstall.sh"
 if [[ -e "$OUTPUT_DIR" || -L "$OUTPUT_DIR" ]]; then
   [[ ! -L "$OUTPUT_DIR" && "$OUTPUT_DIR" == "$OUT_DIR/nyathing-macos-arm64" ]] || {
     echo "Refusing to replace unexpected output path: $OUTPUT_DIR" >&2; exit 1;

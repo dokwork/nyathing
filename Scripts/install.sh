@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PREFIX="${PREFIX:-/usr/local}"
 if [[ "$PREFIX" != /* || "$PREFIX" == / || "$PREFIX" == "$HOME" \
   || "/$PREFIX/" == */../* ]]; then
@@ -12,8 +12,14 @@ fi
 SOURCE_DIR="${1:-}"
 
 if [[ -z "$SOURCE_DIR" ]]; then
-  swift build -c release
-  SOURCE_DIR="$ROOT/.build/release"
+  if [[ -f "$SCRIPT_DIR/nyathing" && -d "$SCRIPT_DIR/Nyathing_Nyathing.bundle" ]]; then
+    SOURCE_DIR="$SCRIPT_DIR"
+  else
+    cd "$ROOT"
+    swift build -c release
+    SOURCE_DIR="$ROOT/.build/release"
+  fi
+  SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd -P)"
 fi
 [[ -d "$SOURCE_DIR" && ! -L "$SOURCE_DIR" ]] || {
   echo "Invalid install source directory: $SOURCE_DIR" >&2; exit 1;
