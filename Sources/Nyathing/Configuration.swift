@@ -9,7 +9,7 @@ struct AppConfiguration {
 
   static let template = """
     # Maximum seconds to wait since the last client keepalive.
-    max_wait_time = 60
+    max_wait_time = 180
     # Whether Nyathing should launch automatically when you log in.
     auto_start = false
     # Animation filename (or "random") used when a client omits the animation field.
@@ -95,7 +95,7 @@ struct AppConfiguration {
       let key = line[..<equal].trimmingCharacters(in: .whitespaces)
       if key == "keepalive_interval_seconds" {
         removedObsoleteSettings = true
-        if legacyMaxWaitTime == nil { legacyMaxWaitTime = "60" }
+        if legacyMaxWaitTime == nil { legacyMaxWaitTime = "180" }
         return nil
       }
       if key == "activity_timeout_seconds" {

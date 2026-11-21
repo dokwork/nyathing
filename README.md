@@ -104,22 +104,30 @@ without having to implement the protocol yourself.
 Use `client` commands to control an activity without wrapping a process:
 
 ```sh
-nyathing client start 
+nyathing client start
 ```
 
 The server starts automatically if it is not already running.
-On `start` nyathing prints the activity ID. 
+On `start` Nyathing prints the activity ID.
 
-Send `keepalive` at least once per requested
-interval (5 seconds by default) to keep animation, and use `stop` when done.
+You can provide an ID with `--activity-id`; starting an already active ID fails
+with an error:
+
+```sh
+nyathing client start --activity-id "$(uuidgen)"
+```
+
+Send `keepalive` at least once per requested interval (5 seconds by default) to
+keep animation, and use `stop` when done.
 
 ```sh
 nyathing client keepalive ACTIVITY_ID
 nyathing client stop ACTIVITY_ID
 ```
 
-Abandoned activities expire according to `max_wait_time`. `start` also accepts
-`--keepalive-interval SECONDS` to override the default for that activity.
+Abandoned activities expire according to `max_wait_time` (see [Configuration](#-configuration)).
+The command `start` also accepts `--keepalive-interval SECONDS` to override the
+default for that activity.
 
 ### How to choose an animation 
 
@@ -237,7 +245,7 @@ The complete initial configuration is:
 
 ```toml
 # Maximum seconds to wait since the last client keepalive.
-max_wait_time = 60
+max_wait_time = 180
 # Whether to launch Nyathing automatically when you log in.
 auto_start = false
 # Animation filename (or "random") used when a client omits the animation field.
@@ -305,6 +313,7 @@ messages are supported:
 | `animation`                  | string | No       | Short name searched in the server's animation directory, or a path to a PNG sprite sheet. Defaults to the server's configured animation. Invalid explicit values return an error.                                       |
 | `description`                | string | No       | Description shown for the activity. If omitted or not a string, the server uses its default description.                                                                                                                |
 | `keepalive_interval_seconds` | number | No       | Positive, finite interval in seconds at which the client promises to send keepalives. Defaults to 5 seconds. The activity expires after the smaller of twice this interval and the server's configured `max_wait_time`. |
+| `activity_id`                 | string | No       | Caller-provided activity ID. Must not match an active activity; otherwise the request fails and names the ID. If omitted, the server generates a UUID. |
 
 A short name without a frame-size suffix or `.png` is resolved in the server's
 animation directory. Other values are treated as file paths; relative paths
@@ -327,7 +336,7 @@ or
 | Field         | Type          | Required | Description                                               |
 | ---           | ---           | ---      | ---                                                       |
 | `command`     | string        | Yes      | Must be `keepalive`.                                      |
-| `activity_id` | string (UUID) | Yes      | Identifier returned by the corresponding `start` request. |
+| `activity_id` | string        | Yes      | ID supplied to or returned by the corresponding `start` request. |
 
 Example:
 

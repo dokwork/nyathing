@@ -6,7 +6,7 @@ final class LocalAPIServer {
   static let defaultKeepaliveInterval: TimeInterval = 5
   private let defaultAnimation: String
   private let maxWaitTime: TimeInterval
-  private let onStart: (String, String?, TimeInterval, Bool, TimeInterval) throws -> String
+  private let onStart: (String, String?, String?, TimeInterval, Bool, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
   private let onStop: (String) throws -> Void
   private let socketPath: String
@@ -18,8 +18,9 @@ final class LocalAPIServer {
   init(
     socketPath: String = LocalAPIServer.socketPath,
     defaultAnimation: String = "nyathing_36x36.png",
-    maxWaitTime: TimeInterval = 60,
-    onStart: @escaping (String, String?, TimeInterval, Bool, TimeInterval) throws -> String,
+    maxWaitTime: TimeInterval = 180,
+    onStart:
+      @escaping (String, String?, String?, TimeInterval, Bool, TimeInterval) throws -> String,
     onKeepalive: @escaping (String) throws -> Void,
     onStop: @escaping (String) throws -> Void
   ) {
@@ -220,6 +221,10 @@ final class LocalAPIServer {
       case "start":
         let animation = request["animation"] as? String ?? defaultAnimation
         guard !animation.isEmpty else { throw LocalAPIError.invalidRequest }
+        let requestedActivityID = request["activity_id"] as? String
+        if request["activity_id"] != nil && (requestedActivityID?.isEmpty ?? true) {
+          throw LocalAPIError.invalidRequest
+        }
         guard request["activity_timeout_seconds"] == nil else {
           throw LocalAPIError.serverManagedActivityTimeout
         }
@@ -234,7 +239,7 @@ final class LocalAPIServer {
         return [
           "ok": true,
           "activity_id": try onStart(
-            animation, request["description"] as? String, keepaliveInterval,
+            animation, request["description"] as? String, requestedActivityID, keepaliveInterval,
             keepaliveIntervalWasProvided, activityTimeout),
         ]
       case "keepalive":
@@ -322,6 +327,7 @@ enum LocalAPIError: LocalizedError {
   case serverManagedActivityTimeout
   case unknownCommand(String)
   case unknownActivity
+  case activityIDInUse(String)
   case socketPathTooLong
   case alreadyRunning(String)
   case unsafeSocketPath(String)
@@ -337,6 +343,7 @@ enum LocalAPIError: LocalizedError {
         "'activity_timeout_seconds' is controlled by the server and cannot be set per activity."
     case .unknownCommand(let command): return "Unknown command: \(command)."
     case .unknownActivity: return "Unknown activity ID."
+    case .activityIDInUse(let id): return "Activity ID \"\(id)\" is already in use."
     case .socketPathTooLong: return "The local API socket path is too long."
     case .alreadyRunning(let path): return "Another Nyathing instance is listening at \(path)."
     case .unsafeSocketPath(let path):

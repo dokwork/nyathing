@@ -71,7 +71,7 @@ struct CLIArguments {
 
       Client usage:
         nyathing client start [--animation NAME] [--description TEXT]
-                              [--keepalive-interval SECONDS]
+                              [--activity-id ID] [--keepalive-interval SECONDS]
         nyathing client keepalive ACTIVITY_ID
         nyathing client stop ACTIVITY_ID
 
@@ -186,6 +186,7 @@ enum NyathingCLI {
     case "start":
       var animation: String?
       var description: String?
+      var activityID: String?
       var interval: Double?
       var index = 1
       while index < arguments.count {
@@ -206,6 +207,9 @@ enum NyathingCLI {
         case "--description":
           guard description == nil else { throw CLIError.usage }
           description = value
+        case "--activity-id":
+          guard activityID == nil else { throw CLIError.usage }
+          activityID = value
         case "--keepalive-interval":
           guard interval == nil, let parsed = Double(value), parsed.isFinite, parsed > 0
           else { throw CLIError.usage }
@@ -218,6 +222,7 @@ enum NyathingCLI {
       var request: [String: Any] = ["command": "start"]
       if let animation { request["animation"] = animation }
       if let description { request["description"] = description }
+      if let activityID { request["activity_id"] = activityID }
       if let interval { request["keepalive_interval_seconds"] = NSNumber(value: interval) }
       let client = try LocalAPIClient.connectOrStartServer()
       guard let activityID = try client.command(request)["activity_id"] as? String else {

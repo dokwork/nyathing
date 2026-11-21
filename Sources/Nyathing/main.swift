@@ -44,8 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   }()
   private var activeAnimations: [String: ActiveAnimation] = [:]
   private var lifecycle = ActivityLifecycle()
-  private var maxWaitTime: TimeInterval = 60
+  private var maxWaitTime: TimeInterval = 180
   private var activityTimeouts: [UUID: TimeInterval] = [:]
+  private var externalActivityIDs: [String: UUID] = [:]
   private var activityKeepaliveIntervals: [UUID: TimeInterval] = [:]
   private var activityKeepaliveIntervalSources: [UUID: String] = [:]
   private var timedOutActivityDetails: [UUID: ActivityTimeoutDetails] = [:]
@@ -583,19 +584,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     apiServer = LocalAPIServer(
       defaultAnimation: serverDefaultAnimation,
       maxWaitTime: maxWaitTime,
-      onStart: { [weak self] filename, description, interval, intervalWasProvided, timeout in
+      onStart: {
+        [weak self] filename, description, requestedID, interval, intervalWasProvided, timeout in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
-          return try self.startActivity(
+          if let requestedID, self.externalActivityIDs[requestedID] != nil {
+            throw LocalAPIError.activityIDInUse(requestedID)
+          }
+          let id = try self.startActivity(
             animation: filename, description: description, activityTimeout: timeout,
             keepaliveInterval: interval, intervalWasProvided: intervalWasProvided
-          ).uuidString
+          )
+          let externalID = requestedID ?? id.uuidString
+          self.externalActivityIDs[externalID] = id
+          return externalID
         }
       },
       onKeepalive: { [weak self] activityID in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation,
-            let id = UUID(uuidString: activityID), self.keepaliveActivity(id)
+            let id = self.externalActivityIDs[activityID], self.keepaliveActivity(id)
           else {
             throw LocalAPIError.unknownActivity
           }
@@ -604,11 +612,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       onStop: { [weak self] activityID in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation,
-            let id = UUID(uuidString: activityID), self.lifecycle.animation(for: id) != nil
+            let id = self.externalActivityIDs[activityID], self.lifecycle.animation(for: id) != nil
           else {
             throw LocalAPIError.unknownActivity
           }
           self.stopActivity(id)
+          self.externalActivityIDs.removeValue(forKey: activityID)
         }
       }
     )
@@ -618,6 +627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private func clearRuntimeState() {
     activeAnimations.removeAll()
     activityTimeouts.removeAll()
+    externalActivityIDs.removeAll()
     activityKeepaliveIntervals.removeAll()
     activityKeepaliveIntervalSources.removeAll()
     timedOutActivityDetails.removeAll()
@@ -810,6 +820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       activityKeepaliveIntervalSources.removeValue(forKey: id)
       ?? "built-in default"
     let timeout = activityTimeouts.removeValue(forKey: id) ?? min(interval * 2, maxWaitTime)
+    externalActivityIDs = externalActivityIDs.filter { $0.value != id }
     timedOutActivityDetails[id] = ActivityTimeoutDetails(
       keepaliveInterval: interval, intervalSource: intervalSource,
       timeout: timeout, maxWaitTime: maxWaitTime)

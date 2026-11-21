@@ -214,7 +214,7 @@ final class ConfigurationTests: XCTestCase {
 
   func testFirstLaunchSeedsConfigurationAndSampleAnimation() throws {
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
-    XCTAssertEqual(configuration.maxWaitTime, 60)
+    XCTAssertEqual(configuration.maxWaitTime, 180)
     XCTAssertEqual(configuration.defaultAnimation, "nyathing_36x36.png")
     XCTAssertTrue(
       FileManager.default.fileExists(
@@ -244,7 +244,7 @@ final class ConfigurationTests: XCTestCase {
 
   func testMigratesLegacyKeepaliveConfiguration() throws {
     let legacy = AppConfiguration.template.replacingOccurrences(
-      of: "max_wait_time = 60",
+      of: "max_wait_time = 180",
       with: "keepalive_interval_seconds = 7\nactivity_timeout_seconds = 24")
     try writeConfiguration(legacy)
 
@@ -323,7 +323,7 @@ final class ConfigurationTests: XCTestCase {
 
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
 
-    XCTAssertEqual(configuration.maxWaitTime, 60)
+    XCTAssertEqual(configuration.maxWaitTime, 180)
     XCTAssertFalse(configuration.autoStart)
     let savedConfig = try String(
       contentsOf: temporaryDirectory.appendingPathComponent("config.toml"), encoding: .utf8)
@@ -355,7 +355,7 @@ final class ConfigurationTests: XCTestCase {
 
     try writeConfiguration(
       AppConfiguration.template.replacingOccurrences(
-        of: "max_wait_time = 60", with: "max_wait_time = 0"))
+        of: "max_wait_time = 180", with: "max_wait_time = 0"))
     XCTAssertThrowsError(try AppConfiguration.load(in: temporaryDirectory))
   }
 
@@ -486,6 +486,7 @@ final class LocalAPIServerTests: XCTestCase {
     let socketPath = directory.appendingPathComponent("api.sock").path
     let lock = NSLock()
     var startedAnimations: [String] = []
+    var requestedActivityIDs: [String?] = []
     var startedDescriptions: [String?] = []
     var startedTimeouts: [Double] = []
     var startedIntervals: [Double] = []
@@ -495,15 +496,19 @@ final class LocalAPIServerTests: XCTestCase {
       socketPath: socketPath,
       defaultAnimation: "nyan_54x36.png",
       maxWaitTime: 30,
-      onStart: { animation, description, interval, intervalWasProvided, timeout in
+      onStart: { animation, description, requestedID, interval, intervalWasProvided, timeout in
         lock.lock()
         defer { lock.unlock() }
+        if let requestedID, requestedActivityIDs.contains(requestedID) {
+          throw LocalAPIError.activityIDInUse(requestedID)
+        }
         startedAnimations.append(animation)
+        requestedActivityIDs.append(requestedID)
         startedDescriptions.append(description)
         startedIntervals.append(interval)
         startedIntervalsWereProvided.append(intervalWasProvided)
         startedTimeouts.append(timeout)
-        return "activity-\(startedAnimations.count)"
+        return requestedID ?? "activity-\(startedAnimations.count)"
       }, onKeepalive: { _ in },
       onStop: { id in
         lock.lock()
@@ -534,16 +539,23 @@ final class LocalAPIServerTests: XCTestCase {
     XCTAssertTrue(
       (clientTimeoutOverride["error"] as? String)?.contains("controlled by the server") == true)
     let firstStart = try first.command([
-      "command": "start", "animation": "same_36x36.png", "description": "first client",
-      "keepalive_interval_seconds": 8,
+      "command": "start", "activity_id": "turn-123", "animation": "same_36x36.png",
+      "description": "first client", "keepalive_interval_seconds": 8,
     ])
-    XCTAssertEqual(firstStart["activity_id"] as? String, "activity-3")
+    XCTAssertEqual(firstStart["activity_id"] as? String, "turn-123")
+    let duplicateStart = try first.command([
+      "command": "start", "activity_id": "turn-123",
+    ])
+    XCTAssertEqual(duplicateStart["ok"] as? Bool, false)
+    XCTAssertEqual(
+      duplicateStart["error"] as? String,
+      "Activity ID \"turn-123\" is already in use.")
     XCTAssertEqual(startedTimeouts[2], 16)
     XCTAssertEqual(
-      try first.command(["command": "keepalive", "activity_id": "activity-3"])["ok"] as? Bool,
+      try first.command(["command": "keepalive", "activity_id": "turn-123"])["ok"] as? Bool,
       true)
     XCTAssertEqual(
-      try first.command(["command": "stop", "activity_id": "activity-3"])["ok"] as? Bool, true)
+      try first.command(["command": "stop", "activity_id": "turn-123"])["ok"] as? Bool, true)
 
     let second = try UnixJSONClient(path: socketPath)
     let secondStart = try second.command([
@@ -559,7 +571,8 @@ final class LocalAPIServerTests: XCTestCase {
     XCTAssertEqual(
       startedAnimations,
       ["nyan_54x36.png", "nyan_54x36.png", "same_36x36.png", "same_36x36.png", "nyan_54x36.png"])
-    XCTAssertEqual(stoppedIDs, ["activity-3"])
+    XCTAssertEqual(stoppedIDs, ["turn-123"])
+    XCTAssertEqual(requestedActivityIDs, [nil, nil, "turn-123", nil, nil])
     XCTAssertEqual(startedDescriptions, [nil, nil, "first client", nil, nil])
     XCTAssertEqual(startedTimeouts, [10, 30, 16, 10, 2])
     XCTAssertEqual(startedIntervals, [5, 30, 8, 5, 1])
