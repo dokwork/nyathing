@@ -20,7 +20,7 @@ task is done.
   - [Describe a client](#describe-a-client)
 - [>_ Nyathing CLI](#-nyathing-cli)
 - [❯ Shell completion](#-shell-completion)
-- [⚙ Configuration](#-configuration)
+- [⚙︎ Configuration](#-configuration)
 - [▦ Animation file format](#-animation-file-format)
 - [⇄ Server communication protocol](#-server-communication-protocol)
 - [✦ Examples](#-examples)
@@ -258,7 +258,7 @@ The completion script offers Nyathing commands and options, including server
 subcommands. It fetches available animations with `nyathing list` when
 completing an animation argument, so the suggestions reflect installed files.
 
-## ⚙ Configuration
+## ⚙︎ Configuration
 
 On first launch, Nyathing creates its configuration directory and adds these
 built-in animations:

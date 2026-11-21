@@ -39,7 +39,8 @@ struct CLIArguments {
   let arguments: [String]
 
   static var usage: String {
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    let version =
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
       ?? AppVersion.current
     return """
       Nyathing displays playful animations in the macOS menu bar while commands run.
