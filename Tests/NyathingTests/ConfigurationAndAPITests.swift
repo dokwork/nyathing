@@ -632,6 +632,19 @@ final class LocalAPIServerTests: XCTestCase {
     XCTAssertEqual(startedIntervalsWereProvided, [false, true, true, true, true])
     lock.unlock()
 
+    server.updateStartSettings(defaultAnimation: { "new_36x36.png" }, maxWaitTime: 4)
+    XCTAssertEqual(
+      try second.command(["command": "keepalive", "activity_id": "activity-4"])["ok"] as? Bool,
+      true)
+    XCTAssertEqual(try second.command(["command": "start"])["activity_id"] as? String, "activity-6")
+    lock.lock()
+    XCTAssertEqual(startedAnimations.last, "new_36x36.png")
+    XCTAssertEqual(startedTimeouts.last, 4)
+    lock.unlock()
+    XCTAssertEqual(
+      try second.command(["command": "stop", "activity_id": "activity-4"])["ok"] as? Bool,
+      true)
+
     let responseLock = NSLock()
     var concurrentResults: [Bool] = []
     DispatchQueue.concurrentPerform(iterations: 4) { _ in

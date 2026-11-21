@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     if serverMode {
       startDedicatedServer()
     } else {
-      reloadConfigurationAndAnimations()
+      reloadConfiguration()
     }
     animationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
       self?.advanceAnimations()
@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
   private func startDedicatedServer() {
     // Keep the AppKit event loop alive for API callbacks and animation updates.
-    reloadConfigurationAndAnimations()
+    reloadConfiguration()
   }
 
   func applicationWillTerminate(_ notification: Notification) {
@@ -536,7 +536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     configurationWindow?.close()
-    reloadConfigurationAndAnimations()
+    reloadConfiguration()
   }
 
   private func showConfigurationEditorError(_ message: String) {
@@ -556,11 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     defaultAnimationPicker = nil
   }
 
-  private func reloadConfigurationAndAnimations() {
-    apiGeneration += 1
-    apiServer?.stop()
-    apiServer = nil
-    clearRuntimeState()
+  private func reloadConfiguration() {
     do {
       let configuration = try AppConfiguration.load(validateDefaultAnimation: false)
       do {
@@ -574,7 +570,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
       maxWaitTime = configuration.maxWaitTime
-      try startAPIServer(configuration: configuration)
+      if let apiServer {
+        apiServer.updateStartSettings(
+          defaultAnimation: { try configuration.resolvedDefaultAnimation },
+          maxWaitTime: maxWaitTime)
+      } else {
+        try startAPIServer(configuration: configuration)
+      }
     } catch {
       let configurationURL = AppConfiguration.configurationDirectory.appendingPathComponent(
         "config.toml")
@@ -593,7 +595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
   private func startAPIServer(configuration: AppConfiguration) throws {
     let generation = apiGeneration
-    apiServer = LocalAPIServer(
+    let server = LocalAPIServer(
       defaultAnimation: { try configuration.resolvedDefaultAnimation },
       maxWaitTime: maxWaitTime,
       onStart: {
@@ -633,22 +635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
       }
     )
-    try apiServer?.start()
-  }
-
-  private func clearRuntimeState() {
-    activeAnimations.removeAll()
-    activityTimeouts.removeAll()
-    externalActivityIDs.removeAll()
-    activityKeepaliveIntervals.removeAll()
-    activityKeepaliveIntervalSources.removeAll()
-    timedOutActivityDetails.removeAll()
-    activityStartOrder.removeAll()
-    nextActivityStartOrder = 0
-    lifecycle.reset()
-    updateMainStatusItemVisibility()
-    updateMainStatusItem()
-    refreshErrorsWindow()
+    try server.start()
+    apiServer = server
   }
 
   /// Begins an activity for a named animation, sharing its status item with matching activities.

@@ -4,8 +4,8 @@ import Foundation
 /// Serves the local JSON Lines API over a current-user Unix domain socket.
 final class LocalAPIServer {
   static let defaultKeepaliveInterval: TimeInterval = 5
-  private let defaultAnimation: () throws -> String
-  private let maxWaitTime: TimeInterval
+  private var defaultAnimation: () throws -> String
+  private var maxWaitTime: TimeInterval
   private let onStart: (String, String?, String?, TimeInterval, Bool, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
   private let onStop: (String) throws -> Void
@@ -30,6 +30,23 @@ final class LocalAPIServer {
     self.onKeepalive = onKeepalive
     self.onStop = onStop
     self.socketPath = socketPath
+  }
+
+  /// Updates the settings for future starts without disconnecting existing clients.
+  func updateStartSettings(
+    defaultAnimation: @escaping () throws -> String, maxWaitTime: TimeInterval
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    self.defaultAnimation = defaultAnimation
+    self.maxWaitTime = maxWaitTime
+  }
+
+  private func startSettings() -> (defaultAnimation: () throws -> String, maxWaitTime: TimeInterval)
+  {
+    lock.lock()
+    defer { lock.unlock() }
+    return (defaultAnimation, maxWaitTime)
   }
 
   deinit { stop() }
@@ -219,6 +236,7 @@ final class LocalAPIServer {
       }
       switch command {
       case "start":
+        let settings = startSettings()
         let animation: String
         if let explicit = request["animation"] {
           guard let value = explicit as? String, !value.isEmpty else {
@@ -226,7 +244,7 @@ final class LocalAPIServer {
           }
           animation = value
         } else {
-          animation = try defaultAnimation()
+          animation = try settings.defaultAnimation()
         }
         let requestedActivityID = request["activity_id"] as? String
         if request["activity_id"] != nil && (requestedActivityID?.isEmpty ?? true) {
@@ -242,7 +260,7 @@ final class LocalAPIServer {
         } else {
           keepaliveInterval = Self.defaultKeepaliveInterval
         }
-        let activityTimeout = min(keepaliveInterval * 2, maxWaitTime)
+        let activityTimeout = min(keepaliveInterval * 2, settings.maxWaitTime)
         return [
           "ok": true,
           "activity_id": try onStart(

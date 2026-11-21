@@ -298,10 +298,9 @@ An invalid explicit selection fails instead of falling back. The configured
 default is checked only when an activity starts without an animation.
 Choose **Edit Configuration** from the menu to change these settings with
 visual controls. **Choose PNG…** lets you select a file outside `animations/`
-and saves its full path. **Accept** saves the configuration and reloads settings and
-animations; this also clears active activities and the disconnected-client
-count. **Cancel** closes the editor without applying changes. Accepting the
-current settings also reloads animation files changed outside the editor.
+and saves its full path. **Accept** applies the new default animation and wait
+limit to future activities without interrupting running ones. **Cancel** closes
+the editor without applying changes.
 
 ## ▦ Animation file format
 
