@@ -26,7 +26,30 @@ private func runNyathingApplication(serverMode: Bool) {
   application.run()
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+private final class ActiveTaskMenuRow: NSView {
+  init(description: String, time: String, icon: NSImage, width: CGFloat, font: NSFont, timeWidth: CGFloat) {
+    super.init(frame: NSRect(x: 0, y: 0, width: width, height: 22))
+    let imageView = NSImageView(image: icon)
+    imageView.frame = NSRect(x: 0, y: 3, width: 16, height: 16)
+    addSubview(imageView)
+
+    let timeField = NSTextField(labelWithString: time)
+    timeField.font = font
+    timeField.alignment = .right
+    timeField.frame = NSRect(x: width - timeWidth - 8, y: 2, width: timeWidth + 4, height: 18)
+    addSubview(timeField)
+
+    let descriptionField = NSTextField(labelWithString: description)
+    descriptionField.font = font
+    descriptionField.lineBreakMode = .byTruncatingTail
+    descriptionField.frame = NSRect(x: 22, y: 2, width: max(0, width - 22 - timeWidth - 20), height: 18)
+    addSubview(descriptionField)
+  }
+
+  required init?(coder: NSCoder) { nil }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
   private let serverMode: Bool
 
   init(serverMode: Bool = false) {
@@ -52,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private var activityKeepaliveIntervalSources: [UUID: String] = [:]
   private var timedOutActivityDetails: [UUID: ActivityTimeoutDetails] = [:]
   private var activityStartOrder: [UUID: UInt64] = [:]
+  private var activityStartUptime: [UUID: TimeInterval] = [:]
   private var nextActivityStartOrder: UInt64 = 0
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
@@ -89,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
   private func configureMenu(for item: NSStatusItem) {
     let menu = NSMenu()
+    menu.delegate = self
     let activities = activeTaskMenuItems()
     for menuItem in activities { menu.addItem(menuItem) }
     if !activities.isEmpty { menu.addItem(.separator()) }
@@ -117,21 +142,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       ].map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
     let iconColumnWidth: CGFloat = 16
     let horizontalMenuPadding: CGFloat = 16
-    let availableWidth = max(0, widestActionTitle - iconColumnWidth - horizontalMenuPadding)
+    let availableWidth = max(0, widestActionTitle * 1.3 - iconColumnWidth - horizontalMenuPadding)
     return rows.compactMap { id in
       guard let animation = lifecycle.animation(for: id),
-        let active = activeAnimations[animation], let icon = active.frames.first,
+        let active = activeAnimations[animation], !active.frames.isEmpty,
         let description = lifecycle.description(for: id)
       else { return nil }
-      let item = NSMenuItem(
-        title: Self.truncatedMenuDescription(description, font: font, width: availableWidth),
-        action: nil, keyEquivalent: "")
-      let menuIcon = (icon.copy() as? NSImage) ?? icon
+      let elapsed = max(0, ProcessInfo.processInfo.systemUptime - (activityStartUptime[id] ?? ProcessInfo.processInfo.systemUptime))
+      let time = "⏱ \(Self.formattedElapsedTime(elapsed))s"
+      let timeWidth = (time as NSString).size(withAttributes: [.font: font]).width
+      let descriptionWidth = max(0, availableWidth - timeWidth - 12)
+      let shortenedDescription = Self.truncatedMenuDescription(description, font: font, width: descriptionWidth)
+      let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+      let firstFrame = active.frames[0]
+      let menuIcon = (firstFrame.copy() as? NSImage) ?? firstFrame
       menuIcon.size = NSSize(width: iconColumnWidth, height: iconColumnWidth)
-      item.image = menuIcon
+      item.view = ActiveTaskMenuRow(
+        description: shortenedDescription, time: time, icon: menuIcon,
+        width: widestActionTitle * 1.3 + 18, font: font, timeWidth: timeWidth)
       item.isEnabled = false
       return item
     }
+  }
+
+  private static func formattedElapsedTime(_ elapsed: TimeInterval) -> String {
+    String(format: "%d:%02d", Int(elapsed) / 60, Int(elapsed) % 60)
   }
 
   private static func truncatedMenuDescription(_ text: String, font: NSFont, width: CGFloat)
@@ -147,6 +182,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       result.removeLast()
     }
     return result.isEmpty ? ellipsis : result + ellipsis
+  }
+
+  func menuWillOpen(_ menu: NSMenu) {
+    if let mainStatusItem, mainStatusItem.menu === menu {
+      configureMenu(for: mainStatusItem)
+    } else if let active = activeAnimations.values.first(where: { $0.statusItem.menu === menu }) {
+      configureMenu(for: active.statusItem)
+    }
   }
 
   private func refreshStatusItemMenus() {
@@ -670,6 +713,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let id = lifecycle.start(
       animation: resolvedFilename, description: description, deadline: deadlineUptime)
     activityStartOrder[id] = nextActivityStartOrder
+    activityStartUptime[id] = ProcessInfo.processInfo.systemUptime
     nextActivityStartOrder &+= 1
     activityTimeouts[id] = timeout
     activityKeepaliveIntervals[id] = keepaliveInterval
