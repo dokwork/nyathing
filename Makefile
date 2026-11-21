@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help format lint test package run install-app install-cli-link install uninstall reinstall
+.PHONY: help format lint test archive run install uninstall
 
 help:
 	@printf '%s\n' \
@@ -9,12 +9,10 @@ help:
 	  '  format           Format Swift files in Sources/ and Tests/' \
 	  '  lint             Check Swift formatting' \
 	  '  test             Run the Swift test suite' \
-	  '  package          Build the macOS installer package' \
+	  '  archive          Build a downloadable CLI archive' \
 	  '  run              Run animations for five seconds (ANIMATIONS="a b" optional)' \
-	  '  install          Install the app and CLI symlink' \
-	  '  install-app      Build and install Nyathing.app in /Applications' \
-	  '  install-cli-link Create the /usr/local/bin/nyathing symlink' \
-	  '  uninstall        Force-remove the app, CLI command, and user data'
+	  '  install          Build and install the CLI in $(PREFIX)/bin' \
+	  '  uninstall        Remove the CLI and legacy app (keeps user data)'
 
 format:
 	@find Sources Tests -type f -name '*.swift' -print0 | xargs -0 swift format format --in-place
@@ -25,19 +23,16 @@ lint:
 test:
 	swift test
 
-package:
-	Scripts/build-pkg.sh
+archive:
+	bash Scripts/package-cli.sh
 
-install-app:
-	bash Scripts/install-app.sh
+PREFIX ?= /usr/local
 
-install-cli-link:
-	bash Scripts/install-cli-link.sh
-
-install: install-app install-cli-link
+install:
+	PREFIX='$(PREFIX)' bash Scripts/install-cli.sh
 
 uninstall:
-	bash Scripts/force-uninstall.sh
+	PREFIX='$(PREFIX)' bash Scripts/force-uninstall.sh
 
 reinstall: uninstall install
 

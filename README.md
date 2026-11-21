@@ -11,58 +11,50 @@ task is done.
 
 ## 🢃 Install
 
-Download the installer package from the repository's **Releases** page. Open
-the package and follow the Installer prompts to install `Nyathing.app` in
-`/Applications`. The installer also creates the `/usr/local/bin/nyathing`
-command symlink and requests administrator authorization to make these
-system-wide changes.
-
-To remove the installed app and command, run in terminal:
+Download `nyathing-macos-arm64.tar.gz` from the latest GitHub Release, then
+extract and install it:
 
 ```sh
-nyathing uninstall
+mkdir -p "$HOME/.local/share/nyathing-archive"
+tar -xzf ~/Downloads/nyathing-macos-arm64.tar.gz \
+  -C "$HOME/.local/share/nyathing-archive"
+cd "$HOME/.local/share/nyathing-archive"
+PREFIX="$HOME/.local" ./install.sh
 ```
 
-**👮🏻‍♂️ Note**
-
-The app and package are **unsigned** and not notarized, so macOS may block the
-app because it was downloaded from the internet. If macOS blocks it, try opening
-the app once, then allow it in **System Settings → Privacy & Security**:
-
-1. Open **System Settings** and select **Privacy & Security**.
-2. Scroll to the **Security** section.
-3. Click **Open Anyway** next to the message about Nyathing being blocked,
-   then confirm when prompted.
-
-The **Open Anyway** option appears after you try to open the app. You may need
-to enter your password or confirm with Touch ID.
-
-Alternatively, build and run `Nyathing` locally using the instructions in
-[Build from source](#build-from-source); locally built apps are not quarantined.
+This installs the command in `~/.local/bin` and the executable and resources
+under `~/.local/libexec/nyathing`. Add `~/.local/bin` to your `PATH` if needed.
+To uninstall, run `PREFIX="$HOME/.local" ./uninstall.sh` from the extracted
+archive. User configuration and animations are kept in `~/.config/nyathing` (or
+`$XDG_CONFIG_HOME/nyathing`).
 
 ## ⚒ Build from source
 
-Requires macOS 12+ and Swift 5.9 or later. Run the commands below from the
-repository root.
-
-### Install from source
-
-Install the menu-bar app in `/Applications`:
+Requires macOS 12+ and Swift 5.9 or later. From the repository root, install
+the CLI in `/usr/local/bin` with:
 
 ```sh
-make install-app
+make install
 ```
 
-To run Nyathing from a terminal, also create the CLI symlink in
-`/usr/local/bin`:
+The installer builds Nyathing and asks for administrator authorization to
+install the command in `/usr/local/bin` and the executable and resources under
+`/usr/local/libexec/nyathing`. To install under
+your home directory instead, without administrator authorization, run:
 
 ```sh
-make install-cli-link
+make install PREFIX="$HOME/.local"
 ```
 
-The CLI symlink requires the app to be installed first. Each command asks
-before replacing an existing app or symlink and requires administrator
-authorization to install its files.
+This installs the command in `~/.local/bin`; add that directory to your `PATH`
+if needed. To uninstall from that prefix, pass it again:
+
+```sh
+make uninstall PREFIX="$HOME/.local"
+```
+
+Without a custom prefix, use `make uninstall` to remove the default installation
+from `/usr/local/bin`. Uninstall keeps user configuration and animations.
 
 ## Nyathing server
 
@@ -166,7 +158,12 @@ custom animation:
   nyathing --animation nyan sleep 5
 ```
 
-List valid installed animations by short name with:
+The activity description is the command and its arguments (for example,
+`sleep 5`). While the command runs, Nyathing sends a keepalive every 5 seconds
+to keep the animation active. It stops when the command exits, or expires if
+keepalives stop arriving.
+
+To get a list of valid installed animations by short name use:
 
 ```sh
   nyathing list

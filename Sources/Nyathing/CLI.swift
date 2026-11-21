@@ -50,7 +50,6 @@ struct CLIArguments {
 
       Usage:
         nyathing [--animation NAME | -a NAME] COMMAND [ARGUMENT ...]
-        nyathing uninstall
         nyathing server start|stop|status
         nyathing client start|keepalive|stop
         nyathing list
@@ -60,7 +59,6 @@ struct CLIArguments {
 
       Commands:
         COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
-        uninstall               Remove the installed app and CLI command.
         server                  Manage the background server (start, stop, status).
         client                  Start, refresh, or stop an activity.
         list                    List available valid animations.
@@ -117,9 +115,6 @@ enum NyathingCLI {
   static let builtInGhostAnimation = "__built_in_ghost__"
 
   static func run(_ arguments: [String]) -> Int32 {
-    if arguments == ["uninstall"] {
-      return NyathingUninstaller.run()
-    }
     if arguments.count == 2, arguments[0] == "completion" {
       guard let script = ShellCompletion.script(for: arguments[1]) else {
         FileHandle.standardError.write(Data("Supported shells: zsh, bash\n".utf8))
@@ -443,7 +438,7 @@ enum NyathingCLI {
 }
 
 enum ShellCompletion {
-  static let supportedCommands = ["server", "client", "list", "uninstall", "completion"]
+  static let supportedCommands = ["server", "client", "list", "completion"]
 
   static func script(for shell: String) -> String? {
     let commands = supportedCommands.joined(separator: " ")
