@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+if [[ "$(uname -m)" != "arm64" ]]; then
+  echo "The macOS arm64 archive must be built on an arm64 runner." >&2
+  exit 1
+fi
+
 swift build -c release
 STAGING="$ROOT/.build/cli-archive"
 OUTPUT_DIR="$ROOT/out/nyathing-macos-arm64"

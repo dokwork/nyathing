@@ -17,7 +17,7 @@ jobs:
     runs-on: macos-26
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Check formatting
         run: make lint
       - name: Run tests
@@ -30,7 +30,7 @@ jobs:
     runs-on: macos-26
     steps:
       - name: Check out selected branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Build CLI archive
         run: Scripts/package-cli.sh
       - name: Test installed archive
@@ -44,7 +44,7 @@ jobs:
           test -x "$prefix/libexec/nyathing/nyathing"
           test -d "$prefix/libexec/nyathing/Nyathing_Nyathing.bundle"
       - name: Upload CLI archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nyathing-macos-arm64
           path: out/nyathing-macos-arm64/*
@@ -60,7 +60,7 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Validate release tag and target branch
@@ -81,7 +81,7 @@ jobs:
       - name: Build CLI archive
         run: Scripts/package-cli.sh
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           target_commitish: ${{ github.sha }}

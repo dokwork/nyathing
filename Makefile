@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help format lint test archive run install uninstall
+.PHONY: help format lint test archive run install uninstall reinstall
 
 help:
 	@printf '%s\n' \
@@ -12,7 +12,8 @@ help:
 	  '  archive          Build a downloadable CLI archive' \
 	  '  run              Run animations for five seconds (ANIMATIONS="a b" optional)' \
 	  '  install          Build and install the CLI in $(PREFIX)/bin' \
-	  '  uninstall        Remove the CLI and legacy app (keeps user data)'
+	  '  uninstall        Remove the CLI and legacy app (keeps user data)' \
+	  '  reinstall        Reinstall Nyathing using the selected PREFIX'
 
 format:
 	@find Sources Tests -type f -name '*.swift' -print0 | xargs -0 swift format format --in-place

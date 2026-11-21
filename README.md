@@ -9,7 +9,7 @@ Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
 task is done.
 
-## 🢃 Install
+## 🢃 Install from archive
 
 Download `nyathing-macos-arm64.tar.gz` from the latest GitHub Release, then
 extract and install it:
@@ -27,6 +27,24 @@ under `~/.local/libexec/nyathing`. Add `~/.local/bin` to your `PATH` if needed.
 To uninstall, run `PREFIX="$HOME/.local" ./uninstall.sh` from the extracted
 archive. User configuration and animations are kept in `~/.config/nyathing` (or
 `$XDG_CONFIG_HOME/nyathing`).
+
+**👮🏻‍♂️ Note**
+
+Nyathing is **unsigned** and not notarized, so macOS may block it because it
+was downloaded from the internet. If macOS blocks Nyathing, try running it once
+from Terminal, then allow it in **System Settings → Privacy & Security**:
+
+1. Open **System Settings** and select **Privacy & Security**.
+2. Scroll to the **Security** section.
+3. Click **Open Anyway** next to the message about Nyathing being blocked,
+   then confirm when prompted. This option may only appear for app launches.
+
+The **Open Anyway** option may appear after you try to open the app; it may
+not be available for a CLI binary. You may need to enter your password or
+confirm with Touch ID.
+
+Alternatively, build and run Nyathing locally using the instructions in
+[Build from source](#build-from-source); locally built binaries are not quarantined.
 
 ## ⚒ Build from source
 
