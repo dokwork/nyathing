@@ -5,8 +5,30 @@ import ImageIO
 struct AppConfiguration {
   let maxWaitTime: TimeInterval
   let autoStart: Bool
-  let defaultAnimation: String
-  let resolvedDefaultAnimation: String
+  private let defaultAnimationValues: [String]
+  private let directory: URL
+
+  var defaultAnimation: String {
+    get throws {
+      guard defaultAnimationValues.count == 1,
+        let rawAnimation = defaultAnimationValues.first,
+        let value = try? JSONDecoder().decode(String.self, from: Data(rawAnimation.utf8)),
+        !value.isEmpty
+      else { throw ConfigError.invalidValue("default_animation") }
+      return value
+    }
+  }
+
+  var resolvedDefaultAnimation: String {
+    get throws {
+      let value = try defaultAnimation
+      do {
+        return try Self.resolveDefaultAnimation(value, in: directory)
+      } catch {
+        throw ConfigError.invalidDefaultAnimation(error.localizedDescription)
+      }
+    }
+  }
 
   static let template = """
     # Maximum seconds to wait since the last client keepalive.
@@ -52,12 +74,7 @@ struct AppConfiguration {
     return String(line)
   }
 
-  static func load() throws -> AppConfiguration {
-    try load(in: configurationDirectory)
-  }
-
-  /// Loads and validates configuration from a configuration directory.
-  static func load(in directory: URL) throws -> AppConfiguration {
+  static func prepareDirectory(_ directory: URL) throws {
     let configURL = directory.appendingPathComponent("config.toml")
     let animationsDirectory = directory.appendingPathComponent("animations", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -77,6 +94,13 @@ struct AppConfiguration {
         }
       }
     }
+  }
+
+  static func load(
+    in directory: URL = configurationDirectory, validateDefaultAnimation: Bool = true
+  ) throws -> AppConfiguration {
+    try prepareDirectory(directory)
+    let configURL = directory.appendingPathComponent("config.toml")
     var text = try String(contentsOf: configURL, encoding: .utf8)
     var removedObsoleteSettings = false
     var legacyMaxWaitTime: String?
@@ -129,6 +153,7 @@ struct AppConfiguration {
       try text.write(to: configURL, atomically: true, encoding: .utf8)
     }
     var values: [String: String] = [:]
+    var defaultAnimationValues: [String] = []
     for (offset, rawLine) in text.split(separator: "\n", omittingEmptySubsequences: false)
       .enumerated()
     {
@@ -139,12 +164,13 @@ struct AppConfiguration {
       }
       let key = line[..<equal].trimmingCharacters(in: .whitespaces)
       let value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
-      guard
-        [
-          "max_wait_time", "auto_start", "default_animation",
-        ].contains(key),
-        values[key] == nil
-      else { throw ConfigError.invalidKey(key, offset + 1) }
+      if key == "default_animation" {
+        defaultAnimationValues.append(value)
+        continue
+      }
+      guard ["max_wait_time", "auto_start"].contains(key), values[key] == nil else {
+        throw ConfigError.invalidKey(key, offset + 1)
+      }
       values[key] = value
     }
     func number(_ key: String) throws -> Double {
@@ -161,21 +187,13 @@ struct AppConfiguration {
     guard let rawAuto = values["auto_start"], rawAuto == "true" || rawAuto == "false" else {
       throw ConfigError.invalidValue("auto_start")
     }
-    guard let rawAnimation = values["default_animation"],
-      let defaultAnimation = try? JSONDecoder().decode(String.self, from: Data(rawAnimation.utf8)),
-      !defaultAnimation.isEmpty
-    else { throw ConfigError.invalidValue("default_animation") }
-    let resolvedDefaultAnimation: String
-    do {
-      resolvedDefaultAnimation = try resolveDefaultAnimation(defaultAnimation, in: directory)
-    } catch {
-      throw ConfigError.invalidDefaultAnimation(error.localizedDescription)
-    }
-    return AppConfiguration(
+    let configuration = AppConfiguration(
       maxWaitTime: try number("max_wait_time"),
       autoStart: rawAuto == "true",
-      defaultAnimation: defaultAnimation,
-      resolvedDefaultAnimation: resolvedDefaultAnimation)
+      defaultAnimationValues: defaultAnimationValues,
+      directory: directory)
+    if validateDefaultAnimation { _ = try configuration.resolvedDefaultAnimation }
+    return configuration
   }
 
   static func resolveDefaultAnimation(_ value: String, in directory: URL) throws -> String {

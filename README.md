@@ -293,8 +293,9 @@ twice that interval and `max_wait_time`. Like `--animation`, `default_animation`
 accepts a short name such as `nyathing`, a filename in `animations/`, a PNG path,
 or `random` to select an animation per activity. Relative paths in `config.toml`
 are resolved beside that file; CLI paths are relative to the working directory.
-Requests with an explicit animation use it; missing or unavailable requested
-animations fall back to the built-in ghost.
+An explicit `-a` or `--animation` skips `default_animation` validation.
+An invalid explicit selection fails instead of falling back. The configured
+default is checked only when an activity starts without an animation.
 Choose **Edit Configuration** from the menu to change these settings with
 visual controls. **Choose PNG…** lets you select a file outside `animations/`
 and saves its full path. **Accept** saves the configuration and reloads settings and

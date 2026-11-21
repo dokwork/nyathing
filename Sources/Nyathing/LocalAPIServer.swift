@@ -4,7 +4,7 @@ import Foundation
 /// Serves the local JSON Lines API over a current-user Unix domain socket.
 final class LocalAPIServer {
   static let defaultKeepaliveInterval: TimeInterval = 5
-  private let defaultAnimation: String
+  private let defaultAnimation: () throws -> String
   private let maxWaitTime: TimeInterval
   private let onStart: (String, String?, String?, TimeInterval, Bool, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
@@ -17,7 +17,7 @@ final class LocalAPIServer {
 
   init(
     socketPath: String = LocalAPIServer.socketPath,
-    defaultAnimation: String = "nyathing_36x36.png",
+    defaultAnimation: @escaping () throws -> String = { "nyathing_36x36.png" },
     maxWaitTime: TimeInterval = 180,
     onStart:
       @escaping (String, String?, String?, TimeInterval, Bool, TimeInterval) throws -> String,
@@ -219,8 +219,15 @@ final class LocalAPIServer {
       }
       switch command {
       case "start":
-        let animation = request["animation"] as? String ?? defaultAnimation
-        guard !animation.isEmpty else { throw LocalAPIError.invalidRequest }
+        let animation: String
+        if let explicit = request["animation"] {
+          guard let value = explicit as? String, !value.isEmpty else {
+            throw LocalAPIError.invalidRequest
+          }
+          animation = value
+        } else {
+          animation = try defaultAnimation()
+        }
         let requestedActivityID = request["activity_id"] as? String
         if request["activity_id"] != nil && (requestedActivityID?.isEmpty ?? true) {
           throw LocalAPIError.invalidRequest

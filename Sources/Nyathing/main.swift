@@ -53,7 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private var timedOutActivityDetails: [UUID: ActivityTimeoutDetails] = [:]
   private var activityStartOrder: [UUID: UInt64] = [:]
   private var nextActivityStartOrder: UInt64 = 0
-  private var defaultAnimation = "nyathing_36x36.png"
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
   private var errorsWindow: NSWindow?
@@ -360,8 +359,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     let configuration: AppConfiguration
+    let configuredAnimation: String
     do {
-      configuration = try AppConfiguration.load()
+      configuration = try AppConfiguration.load(validateDefaultAnimation: false)
+      configuredAnimation = try configuration.defaultAnimation
     } catch {
       showConfigurationEditorError(error.localizedDescription)
       return
@@ -392,7 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       animationPicker.menu?.addItem(
         animationMenuItem(title: name, frame: animationsByName[name]?.frames.first))
     }
-    selectAnimation(configuration.defaultAnimation, in: animationPicker)
+    selectAnimation(configuredAnimation, in: animationPicker)
     let browseButton = NSButton(
       title: "Choose PNG…", target: self, action: #selector(chooseConfigurationAnimation))
     let animationControls = NSStackView(views: [animationPicker, browseButton])
@@ -561,7 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     apiServer = nil
     clearRuntimeState()
     do {
-      let configuration = try AppConfiguration.load()
+      let configuration = try AppConfiguration.load(validateDefaultAnimation: false)
       do {
         try LaunchAgentSupport.configure(
           enabled: configuration.autoStart,
@@ -573,8 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
       maxWaitTime = configuration.maxWaitTime
-      defaultAnimation = configuration.resolvedDefaultAnimation
-      try startAPIServer()
+      try startAPIServer(configuration: configuration)
     } catch {
       let configurationURL = AppConfiguration.configurationDirectory.appendingPathComponent(
         "config.toml")
@@ -591,10 +591,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     updateMainStatusItem()
   }
 
-  private func startAPIServer() throws {
+  private func startAPIServer(configuration: AppConfiguration) throws {
     let generation = apiGeneration
     apiServer = LocalAPIServer(
-      defaultAnimation: defaultAnimation,
+      defaultAnimation: { try configuration.resolvedDefaultAnimation },
       maxWaitTime: maxWaitTime,
       onStart: {
         [weak self] filename, description, requestedID, interval, intervalWasProvided, timeout in

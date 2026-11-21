@@ -215,7 +215,7 @@ final class ConfigurationTests: XCTestCase {
   func testFirstLaunchSeedsConfigurationAndSampleAnimation() throws {
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
     XCTAssertEqual(configuration.maxWaitTime, 180)
-    XCTAssertEqual(configuration.defaultAnimation, "nyathing")
+    XCTAssertEqual(try configuration.defaultAnimation, "nyathing")
     XCTAssertTrue(
       FileManager.default.fileExists(
         atPath: temporaryDirectory.appendingPathComponent("config.toml").path))
@@ -266,8 +266,8 @@ final class ConfigurationTests: XCTestCase {
 
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
 
-    XCTAssertEqual(configuration.defaultAnimation, "random")
-    XCTAssertEqual(configuration.resolvedDefaultAnimation, "random")
+    XCTAssertEqual(try configuration.defaultAnimation, "random")
+    XCTAssertEqual(try configuration.resolvedDefaultAnimation, "random")
   }
 
   func testDefaultAnimationAcceptsShortNameAndPaths() throws {
@@ -285,8 +285,8 @@ final class ConfigurationTests: XCTestCase {
         with: "default_animation = \"\(value)\"")
       try writeConfiguration(configurationText)
       let configuration = try AppConfiguration.load(in: temporaryDirectory)
-      XCTAssertEqual(configuration.defaultAnimation, value)
-      XCTAssertEqual(configuration.resolvedDefaultAnimation, expected.standardizedFileURL.path)
+      XCTAssertEqual(try configuration.defaultAnimation, value)
+      XCTAssertEqual(try configuration.resolvedDefaultAnimation, expected.standardizedFileURL.path)
     }
   }
 
@@ -499,6 +499,38 @@ final class ActivityLifecycleTests: XCTestCase {
 }
 
 final class LocalAPIServerTests: XCTestCase {
+  func testExplicitAnimationDoesNotRequireValidConfiguredDefault() throws {
+    let directory = URL(
+      fileURLWithPath: "/tmp/nyathing-\(UUID().uuidString.prefix(8))", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let text = AppConfiguration.template.replacingOccurrences(
+      of: "default_animation = \"nyathing\"", with: "default_animation = false")
+    try text.write(
+      to: directory.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+    let configuration = try AppConfiguration.load(in: directory, validateDefaultAnimation: false)
+    let animations = directory.appendingPathComponent("animations", isDirectory: true)
+    let socketPath = directory.appendingPathComponent("api.sock").path
+    let server = LocalAPIServer(
+      socketPath: socketPath,
+      defaultAnimation: { try configuration.resolvedDefaultAnimation },
+      onStart: { animation, _, _, _, _, _ in
+        try NyathingCLI.resolveAnimation(animation, in: animations)
+      }, onKeepalive: { _ in }, onStop: { _ in })
+    try server.start()
+    defer { server.stop() }
+
+    let client = try UnixJSONClient(path: socketPath)
+    XCTAssertEqual(
+      try client.command(["command": "start", "animation": "nyathing"])["ok"] as? Bool, true)
+    let invalid = try client.command(["command": "start", "animation": "not-installed"])
+    XCTAssertEqual(invalid["ok"] as? Bool, false)
+    XCTAssertTrue((invalid["error"] as? String)?.contains("not-installed") == true)
+    let omitted = try client.command(["command": "start"])
+    XCTAssertEqual(omitted["ok"] as? Bool, false)
+    XCTAssertTrue((omitted["error"] as? String)?.contains("default_animation") == true)
+  }
+
   func testMultipleCommandsOnConnectionAndConcurrentClients() throws {
     let directory = URL(
       fileURLWithPath: "/tmp/nyathing-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -515,7 +547,7 @@ final class LocalAPIServerTests: XCTestCase {
     var stoppedIDs: [String] = []
     let server = LocalAPIServer(
       socketPath: socketPath,
-      defaultAnimation: "nyan_54x36.png",
+      defaultAnimation: { "nyan_54x36.png" },
       maxWaitTime: 30,
       onStart: { animation, description, requestedID, interval, intervalWasProvided, timeout in
         lock.lock()

@@ -157,9 +157,10 @@ enum NyathingCLI {
         }
       }
       if arguments == ["list"] {
-        _ = try AppConfiguration.load()
-        let directory = AppConfiguration.configurationDirectory
-          .appendingPathComponent("animations", isDirectory: true)
+        let configurationDirectory = AppConfiguration.configurationDirectory
+        try AppConfiguration.prepareDirectory(configurationDirectory)
+        let directory =
+          configurationDirectory.appendingPathComponent("animations", isDirectory: true)
         let names = SpriteAnimation.loadAll(in: directory).keys.compactMap { filename -> String? in
           guard
             let separator = filename.range(
@@ -197,13 +198,7 @@ enum NyathingCLI {
         switch option {
         case "--animation", "-a":
           guard animation == nil else { throw CLIError.usage }
-          if value == "random" || isShortAnimationName(value) {
-            animation = value
-          } else {
-            let directory = AppConfiguration.configurationDirectory
-              .appendingPathComponent("animations", isDirectory: true)
-            animation = try resolveAnimation(value, in: directory)
-          }
+          animation = value
         case "--description":
           guard description == nil else { throw CLIError.usage }
           description = value
@@ -220,7 +215,7 @@ enum NyathingCLI {
         index += 2
       }
       var request: [String: Any] = ["command": "start"]
-      if let animation { request["animation"] = animation }
+      if let animation { request["animation"] = try explicitAnimationForRequest(animation) }
       if let description { request["description"] = description }
       if let activityID { request["activity_id"] = activityID }
       if let interval { request["keepalive_interval_seconds"] = NSNumber(value: interval) }
@@ -247,18 +242,16 @@ enum NyathingCLI {
 
   private static func execute(_ cli: CLIArguments) throws -> Int32 {
     let executable = try resolveExecutable(cli.command)
-    let configuration = try AppConfiguration.load()
-    let animationsDirectory = AppConfiguration.configurationDirectory
-      .appendingPathComponent("animations", isDirectory: true)
-    let animation = try resolveAnimation(
-      cli.animation ?? configuration.resolvedDefaultAnimation, in: animationsDirectory)
     let keepaliveInterval = LocalAPIServer.defaultKeepaliveInterval
-    let client = try LocalAPIClient.connectOrStartServer()
-    let activity = try client.command([
+    var request: [String: Any] = [
       "command": "start",
-      "animation": animation,
       "description": activityDescription(command: cli.command, arguments: cli.arguments),
-    ])
+    ]
+    if let animation = cli.animation {
+      request["animation"] = try explicitAnimationForRequest(animation)
+    }
+    let client = try LocalAPIClient.connectOrStartServer()
+    let activity = try client.command(request)
     guard let activityID = activity["activity_id"] as? String else {
       throw CLIError.api("The server returned an invalid activity response.")
     }
@@ -312,6 +305,14 @@ enum NyathingCLI {
     }
     if child.terminationReason == .uncaughtSignal { return 128 + child.terminationStatus }
     return child.terminationStatus
+  }
+
+  private static func explicitAnimationForRequest(_ value: String) throws -> String {
+    if value == "random" { return value }
+    let directory = AppConfiguration.configurationDirectory
+    try AppConfiguration.prepareDirectory(directory)
+    return try resolveAnimation(
+      value, in: directory.appendingPathComponent("animations", isDirectory: true))
   }
 
   static func validateAnimation(_ filename: String, in directory: URL) throws {
