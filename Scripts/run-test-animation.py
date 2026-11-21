@@ -48,17 +48,13 @@ def configured_value(text, key, default):
     return match.group(2) if match else default
 
 
-def configured_seconds(text, key, default):
-    match = re.search(rf"^\s*{re.escape(key)}\s*=\s*([0-9.]+)", text, re.M)
-    return float(match.group(1)) if match else default
-
 
 app = None
 started_here = False
 activity_ids = []
 try:
     if not api_is_ready():
-        app = subprocess.Popen([".build/debug/nyathing"])
+        app = subprocess.Popen([".build/debug/nyathing", "--nyathing-server"])
         started_here = True
         startup_deadline = time.monotonic() + 30
         while not api_is_ready():
@@ -71,21 +67,27 @@ try:
             time.sleep(0.2)
 
     settings = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    interval = 5.0
+    try:
+        duration = float(os.environ.get("DURATION", "5"))
+    except ValueError as error:
+        raise ValueError("DURATION must be a positive number of seconds") from error
+    if not 0 < duration < float("inf"):
+        raise ValueError("DURATION must be a positive finite number of seconds")
+
     animations = os.environ.get("ANIMATIONS", "").replace(",", " ").split()
     if not animations:
-        animation = os.environ.get("ANIMATION") or configured_value(
-            settings, "default_animation", "nyathing_36x36.png"
-        )
-        animations = [animation]
+        animations = [os.environ.get("ANIMATION")]
     for animation in animations:
-        activity_id = request({"command": "start", "animation": animation})["activity_id"]
+        payload = {"command": "start", "keepalive_interval_seconds": interval}
+        if animation is not None:
+            payload["animation"] = animation
+        activity_id = request(payload)["activity_id"]
         activity_ids.append(activity_id)
-        print(f"Started {animation} ({activity_id})")
+        print(f"Started {animation or 'default animation'} ({activity_id})")
 
-    interval = configured_seconds(settings, "keepalive_interval_seconds", 5.0)
-    timeout = configured_seconds(settings, "activity_timeout_seconds", 5.0)
-    keepalive_delay = min(interval, timeout) / 2
-    run_deadline = time.monotonic() + 5
+    keepalive_delay = interval
+    run_deadline = time.monotonic() + duration
     while time.monotonic() < run_deadline:
         time.sleep(min(keepalive_delay, run_deadline - time.monotonic()))
         for activity_id in activity_ids:

@@ -3,8 +3,10 @@ import Foundation
 
 /// Serves the local JSON Lines API over a current-user Unix domain socket.
 final class LocalAPIServer {
-  private let defaultAnimation: String
-  private let onStart: (String) throws -> String
+  static let defaultKeepaliveInterval: TimeInterval = 5
+  private let defaultAnimation: () throws -> String
+  private let maxWaitTime: TimeInterval
+  private let onStart: (String, String?, String?, TimeInterval, Bool, TimeInterval) throws -> String
   private let onKeepalive: (String) throws -> Void
   private let onStop: (String) throws -> Void
   private let socketPath: String
@@ -15,12 +17,15 @@ final class LocalAPIServer {
 
   init(
     socketPath: String = LocalAPIServer.socketPath,
-    defaultAnimation: String = "nyathing_36x36.png",
-    onStart: @escaping (String) throws -> String,
+    defaultAnimation: @escaping () throws -> String = { "nyathing_36x36.png" },
+    maxWaitTime: TimeInterval = 180,
+    onStart:
+      @escaping (String, String?, String?, TimeInterval, Bool, TimeInterval) throws -> String,
     onKeepalive: @escaping (String) throws -> Void,
     onStop: @escaping (String) throws -> Void
   ) {
     self.defaultAnimation = defaultAnimation
+    self.maxWaitTime = maxWaitTime
     self.onStart = onStart
     self.onKeepalive = onKeepalive
     self.onStop = onStop
@@ -214,9 +219,36 @@ final class LocalAPIServer {
       }
       switch command {
       case "start":
-        let animation = request["animation"] as? String ?? defaultAnimation
-        guard !animation.isEmpty else { throw LocalAPIError.invalidRequest }
-        return ["ok": true, "activity_id": try onStart(animation)]
+        let animation: String
+        if let explicit = request["animation"] {
+          guard let value = explicit as? String, !value.isEmpty else {
+            throw LocalAPIError.invalidRequest
+          }
+          animation = value
+        } else {
+          animation = try defaultAnimation()
+        }
+        let requestedActivityID = request["activity_id"] as? String
+        if request["activity_id"] != nil && (requestedActivityID?.isEmpty ?? true) {
+          throw LocalAPIError.invalidRequest
+        }
+        guard request["activity_timeout_seconds"] == nil else {
+          throw LocalAPIError.serverManagedActivityTimeout
+        }
+        let keepaliveIntervalWasProvided = request["keepalive_interval_seconds"] != nil
+        let keepaliveInterval: TimeInterval
+        if let rawKeepaliveInterval = request["keepalive_interval_seconds"] {
+          keepaliveInterval = try positiveSeconds(rawKeepaliveInterval)
+        } else {
+          keepaliveInterval = Self.defaultKeepaliveInterval
+        }
+        let activityTimeout = min(keepaliveInterval * 2, maxWaitTime)
+        return [
+          "ok": true,
+          "activity_id": try onStart(
+            animation, request["description"] as? String, requestedActivityID, keepaliveInterval,
+            keepaliveIntervalWasProvided, activityTimeout),
+        ]
       case "keepalive":
         guard let activityID = request["activity_id"] as? String, !activityID.isEmpty else {
           throw LocalAPIError.invalidRequest
@@ -256,6 +288,14 @@ final class LocalAPIServer {
     }
   }
 
+  private func positiveSeconds(_ value: Any) throws -> TimeInterval {
+    guard let number = value as? NSNumber, number.doubleValue.isFinite, number.doubleValue > 0
+    else {
+      throw LocalAPIError.invalidKeepaliveInterval
+    }
+    return number.doubleValue
+  }
+
   private var isRunning: Bool {
     lock.lock()
     defer { lock.unlock() }
@@ -290,8 +330,11 @@ final class LocalAPIServer {
 enum LocalAPIError: LocalizedError {
   case unavailable
   case invalidRequest
+  case invalidKeepaliveInterval
+  case serverManagedActivityTimeout
   case unknownCommand(String)
   case unknownActivity
+  case activityIDInUse(String)
   case socketPathTooLong
   case alreadyRunning(String)
   case unsafeSocketPath(String)
@@ -300,8 +343,14 @@ enum LocalAPIError: LocalizedError {
     switch self {
     case .unavailable: return "The local API is unavailable."
     case .invalidRequest: return "Invalid JSON Lines request."
+    case .invalidKeepaliveInterval:
+      return "'keepalive_interval_seconds' must be a positive finite number of seconds."
+    case .serverManagedActivityTimeout:
+      return
+        "'activity_timeout_seconds' is controlled by the server and cannot be set per activity."
     case .unknownCommand(let command): return "Unknown command: \(command)."
     case .unknownActivity: return "Unknown activity ID."
+    case .activityIDInUse(let id): return "Activity ID \"\(id)\" is already in use."
     case .socketPathTooLong: return "The local API socket path is too long."
     case .alreadyRunning(let path): return "Another Nyathing instance is listening at \(path)."
     case .unsafeSocketPath(let path):

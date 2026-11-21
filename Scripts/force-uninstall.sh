@@ -1,15 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-app_path="/Applications/Nyathing.app"
-cli_path="/usr/local/bin/nyathing"
+prefix="${PREFIX:-/usr/local}"
+if [[ "$prefix" != /* || "$prefix" == / || "$prefix" == "$HOME" \
+  || "/$prefix/" == */../* ]]; then
+  echo "Refusing unsafe PREFIX: $prefix" >&2
+  exit 1
+fi
+bin_dir="$prefix/bin"
+cli_path="$bin_dir/nyathing"
+libexec_dir="$prefix/libexec/nyathing"
+legacy_app_path="/Applications/Nyathing.app"
 launch_agent="$HOME/Library/LaunchAgents/com.nyathing.Nyathing.plist"
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/nyathing"
-state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nyathing"
 
 launchctl bootout "gui/$(id -u)" "$launch_agent" 2>/dev/null || true
 
-# Stop Nyathing before removing its app bundle and executable.
+# Stop Nyathing before removing its executable and resources.
 /usr/bin/pkill -TERM -x nyathing 2>/dev/null || true
 for _ in {1..5}; do
   if ! /usr/bin/pgrep -x nyathing >/dev/null 2>&1; then break; fi
@@ -17,17 +23,33 @@ for _ in {1..5}; do
 done
 /usr/bin/pkill -KILL -x nyathing 2>/dev/null || true
 
-sudo /bin/rm -rf -- \
-  "$app_path" \
-  "$cli_path" \
-  "$launch_agent" \
-  "$config_dir" \
-  "$state_dir"
+remove_path() {
+  local path="$1" parent="$(dirname "$1")"
+  case "$path" in
+    "$cli_path"|"$libexec_dir"|"$legacy_app_path"|"$launch_agent") ;;
+    *) echo "Refusing to remove unexpected path: $path" >&2; return 1 ;;
+  esac
+  [[ "$path" != / && -n "$path" ]] || {
+    echo "Refusing unsafe removal path: $path" >&2; return 1;
+  }
+  [[ -e "$path" || -L "$path" ]] || return 0
+  while [[ ! -e "$parent" ]]; do parent="$(dirname "$parent")"; done
+  if [[ -w "$parent" ]]; then
+    /bin/rm -rf -- "$path"
+  else
+    sudo /bin/rm -rf -- "$path"
+  fi
+}
 
-if [[ -e "$app_path" || -L "$app_path" || -e "$cli_path" || -L "$cli_path" \
-  || -e "$launch_agent" || -e "$config_dir" || -e "$state_dir" ]]; then
-  echo "Nyathing uninstall failed: some app files or user data remain." >&2
+remove_path "$cli_path"
+remove_path "$libexec_dir"
+remove_path "$legacy_app_path"
+remove_path "$launch_agent"
+
+if [[ -e "$cli_path" || -L "$cli_path" || -e "$libexec_dir" \
+  || -e "$legacy_app_path" || -e "$launch_agent" ]]; then
+  echo "Nyathing uninstall failed: some installed files remain." >&2
   exit 1
 fi
 
-echo "Nyathing and its user data were removed."
+echo "Nyathing was removed. User configuration and state were kept."

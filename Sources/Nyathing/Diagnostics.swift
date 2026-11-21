@@ -75,12 +75,72 @@ enum NyathingLog {
 
 enum LaunchAgentSupport {
   static let label = "com.nyathing.Nyathing"
+  static let serverArgument = "--nyathing-server"
+
+  private static var agentURL: URL {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+      .appendingPathComponent("\(label).plist")
+  }
+
+  private static var serviceTarget: String {
+    "gui/\(getuid())/\(label)"
+  }
+
+  static func startServer(in configurationDirectory: URL) throws {
+    try configure(enabled: true, in: configurationDirectory)
+    if launchctl(["print", serviceTarget]).status == 0 {
+      try runLaunchctl(["kickstart", serviceTarget])
+      return
+    }
+    try runLaunchctl(["bootstrap", "gui/\(getuid())", agentURL.path])
+  }
+
+  static func stopServer(in configurationDirectory: URL) throws {
+    if launchctl(["print", serviceTarget]).status == 0 {
+      try runLaunchctl(["bootout", serviceTarget])
+    }
+    try? FileManager.default.removeItem(at: agentURL)
+  }
+
+  static func serverIsRunning() -> Bool {
+    let result = launchctl(["print", serviceTarget])
+    guard result.status == 0 else { return false }
+    return result.output.components(separatedBy: .newlines).contains { line in
+      guard line.trimmingCharacters(in: .whitespaces).hasPrefix("pid = ") else { return false }
+      let value = line.trimmingCharacters(in: .whitespaces).dropFirst("pid = ".count)
+      return Int(value).map { $0 > 0 } ?? false
+    }
+  }
+
+  private static func runLaunchctl(_ arguments: [String]) throws {
+    let result = launchctl(arguments)
+    guard result.status == 0 else {
+      let detail = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+      throw LaunchAgentError.launchctl(detail.isEmpty ? "launchctl failed." : detail)
+    }
+  }
+
+  private static func launchctl(_ arguments: [String]) -> (status: Int32, output: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+    process.arguments = arguments
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    do {
+      try process.run()
+      let output = pipe.fileHandleForReading.readDataToEndOfFile()
+      process.waitUntilExit()
+      return (process.terminationStatus, String(data: output, encoding: .utf8) ?? "")
+    } catch {
+      return (1, error.localizedDescription)
+    }
+  }
 
   /// Installs or removes the user's login agent according to the auto-start setting.
   static func configure(enabled: Bool, in configurationDirectory: URL) throws {
-    let launchAgentsDirectory = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
-    let agentURL = launchAgentsDirectory.appendingPathComponent("\(label).plist")
+    let launchAgentsDirectory = agentURL.deletingLastPathComponent()
     let legacyURL = configurationDirectory.appendingPathComponent("\(label).plist")
 
     if enabled {
@@ -89,7 +149,7 @@ enum LaunchAgentSupport {
       }
       let plist: [String: Any] = [
         "Label": label,
-        "ProgramArguments": [executable],
+        "ProgramArguments": [executable, serverArgument],
         "RunAtLoad": true,
       ]
       let data = try PropertyListSerialization.data(
@@ -110,7 +170,13 @@ enum LaunchAgentSupport {
 
 enum LaunchAgentError: LocalizedError {
   case executableUnavailable
+  case launchctl(String)
   var errorDescription: String? {
-    "Unable to determine Nyathing's executable path for the LaunchAgent plist."
+    switch self {
+    case .executableUnavailable:
+      return "Unable to determine Nyathing's executable path for the LaunchAgent plist."
+    case .launchctl(let message):
+      return "Unable to manage the Nyathing server: \(message)"
+    }
   }
 }
