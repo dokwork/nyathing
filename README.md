@@ -9,7 +9,28 @@ Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
 task is done.
 
-## 🢃 Install from archive
+## Contents
+
+- [↓ Install from archive](#-install-from-archive)
+- [⚒︎ Build from source](#-build-from-source)
+- [▤ Nyathing server](#-nyathing-server)
+  - [Launch at login](#launch-at-login)
+- [⌘ Nyathing client](#-nyathing-client)
+  - [How to choose an animation](#how-to-choose-an-animation)
+  - [Describe a client](#describe-a-client)
+- [>_ Nyathing CLI](#-nyathing-cli)
+- [❯ Shell completion](#-shell-completion)
+- [⚙ Configuration](#-configuration)
+- [▦ Animation file format](#-animation-file-format)
+- [⇄ Server communication protocol](#-server-communication-protocol)
+- [✦ Examples](#-examples)
+  - [Minimal Python client example](#-minimal-python-client-example)
+  - [Coding-agent integrations](#-coding-agent-integrations)
+    - [Codex](#-codex)
+    - [Claude Code](#-claude-code)
+- [⚡︎ Troubleshooting](#-troubleshooting)
+
+## ↓ Install from archive
 
 Download `nyathing-macos-arm64.tar.gz` from the latest GitHub Release, then
 extract and install it:
@@ -46,7 +67,7 @@ confirm with Touch ID.
 Alternatively, build and run Nyathing locally using the instructions in
 [Build from source](#build-from-source); locally built binaries are not quarantined.
 
-## ⚒ Build from source
+## ⚒︎ Build from source
 
 Requires macOS 12+ and Swift 5.9 or later. From the repository root, install
 the CLI in `/usr/local/bin` with:
@@ -74,7 +95,7 @@ make uninstall PREFIX="$HOME/.local"
 Without a custom prefix, use `make uninstall` to remove the default installation
 from `/usr/local/bin`. Uninstall keeps user configuration and animations.
 
-## Nyathing server
+## ▤ Nyathing server
 
 <p align="right"><img src="assets/nyathing-server.png" alt="nyathing-server" height=80></p>
 
@@ -94,7 +115,19 @@ For convenience, Nyathing also implements the client side of the protocol. See
 For the complete message formats, field requirements, and response schemas,
 see [Server communication protocol](#server-communication-protocol). 
 
-## Nyathing client
+### Launch at login
+
+In the **Edit Configuration** window, enable **Launch Nyathing at login** and
+click **Accept**. Nyathing installs its own LaunchAgent in
+`~/Library/LaunchAgents`; it will start automatically at your next login. No
+manual `launchctl` commands are needed.
+
+Disable **Launch Nyathing at login** in **Edit Configuration** and click
+**Accept** to remove the LaunchAgent. If you move
+`Nyathing.app`, enable auto-start again and click **Accept** so the LaunchAgent
+records the app's new location.
+
+## ⌘ Nyathing client
 
 <p align="right"><img src="assets/nyathing-client.png" alt="nyathing-client" height=80></p>
 
@@ -169,7 +202,7 @@ identify the activity:
 nyathing client start --description "Running tests"
 ```
 
-## Nyathing CLI
+## >_ Nyathing CLI
 
 <p align="right"><img src="assets/nyathing-cli.png" alt="nyathing-cli" height=85></p>
 
@@ -266,7 +299,7 @@ animations; this also clears active activities and the disconnected-client
 count. **Cancel** closes the editor without applying changes. Accepting the
 current settings also reloads animation files changed outside the editor.
 
-## 👾 Animation file format
+## ▦ Animation file format
 
 Animation files are horizontal PNG sprite sheets. The filename suffix declares
 the dimensions of each frame, for example `nyan_64x48.png`. Each dimension must
@@ -277,7 +310,7 @@ frames and 4 million pixels total. Frames are scaled to fit the menu bar. The
 app validates assets on startup and when settings are accepted; invalid assets
 are ignored and logged. Playback runs at 10 frames per second.
 
-## {} Server communication protocol
+## ⇄ Server communication protocol
 
 The server communicates over a Unix domain `SOCK_STREAM` socket using UTF-8
 JSON Lines. Each message is a JSON object followed by `\n`; each request
@@ -388,7 +421,9 @@ request lines. An activity expires after the smaller of twice its keepalive
 interval and the configured `max_wait_time`. Expiration increments the
 disconnected-client count; an explicit `stop` does not.
 
-## ✦ Minimal Python client example
+## ✦ Examples
+
+### 🐍 Minimal Python client example
 
 ```python
 import json
@@ -415,17 +450,144 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
     command({"command": "stop", "activity_id": activity})
 ```
 
-## Launch at login
+### 🤖 Coding-agent integrations
 
-In the **Edit Configuration** window, enable **Launch Nyathing at login** and
-click **Accept**. Nyathing installs its own LaunchAgent in
-`~/Library/LaunchAgents`; it will start automatically at your next login. No
-manual `launchctl` commands are needed.
+Nyathing's CLI can be called directly from command hooks. The examples below
+use `jq` to extract the activity ID from hook JSON on stdin; no helper script
+is needed. Install `jq` and make sure it is on `PATH`. Replace `nyathing` with
+its absolute path if the hook environment does not include it in `PATH`.
 
-Disable **Launch Nyathing at login** in **Edit Configuration** and click
-**Accept** to remove the LaunchAgent. If you move
-`Nyathing.app`, enable auto-start again and click **Accept** so the LaunchAgent
-records the app's new location.
+#### <img src="assets/codex_icon.png" alt="" height="22" style="vertical-align: middle;"> Codex
+
+See the [Codex hooks documentation](https://developers.openai.com/codex/hooks).
+Add these hooks to `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .turn_id) && nyathing client start --activity-id \"$id\" --keepalive-interval 90 >/dev/null"
+      }]
+    }],
+    "PostModelRequest": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .turn_id) && nyathing client keepalive \"$id\""
+      }]
+    }],
+    "PreToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .turn_id) && nyathing client keepalive \"$id\""
+      }]
+    }],
+    "PostToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .turn_id) && nyathing client keepalive \"$id\""
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .turn_id) && nyathing client stop \"$id\""
+      }]
+    }],
+    "Interrupt": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .turn_id) && nyathing client stop \"$id\"",
+        "timeout": 3
+      }]
+    }]
+  }
+}
+```
+
+`UserPromptSubmit` starts one activity per turn. Model responses and tool
+calls refresh its keepalive; `Stop` and `Interrupt` stop it. The 90-second
+keepalive interval gives the activity up to 180 seconds between refreshes,
+subject to `max_wait_time`. A single long model request or tool call can still
+outlast that timeout. Review and trust the hooks in Codex before using them.
+
+#### <img src="assets/claude-code-icon.png" alt="" height="22" style="vertical-align: middle;"> Claude Code
+
+See the [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks).
+Add these hooks to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .session_id) && (nyathing client keepalive \"$id\" 2>/dev/null || nyathing client start --activity-id \"$id\" --keepalive-interval 90 >/dev/null)"
+      }]
+    }],
+    "PreToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .session_id) && nyathing client keepalive \"$id\""
+      }]
+    }],
+    "PostToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .session_id) && nyathing client keepalive \"$id\""
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .session_id) && nyathing client stop \"$id\" || true"
+      }]
+    }],
+    "StopFailure": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .session_id) && nyathing client stop \"$id\" || true"
+      }]
+    }],
+    "SessionEnd": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .session_id) && nyathing client stop \"$id\" || true"
+      }]
+    }]
+  }
+}
+```
+
+Claude Code's `session_id` stays the same across turns, so the prompt hook
+first refreshes an existing activity and starts it only if it is missing.
+Tool hooks refresh keepalive; `Stop` and `StopFailure` stop the activity.
+Claude Code does not run `Stop` when you interrupt a turn. In that case, the
+activity expires after its keepalive timeout; submitting another prompt in
+the same session refreshes it. `SessionEnd` provides final cleanup. For long
+assistant output, add this hook to the `hooks` object to refresh keepalive
+for each displayed message batch:
+
+```json
+{
+  "hooks": {
+    "MessageDisplay": [{
+      "hooks": [{
+        "type": "command",
+        "command": "id=$(jq -r .session_id) && nyathing client keepalive \"$id\""
+      }]
+    }]
+  }
+}
+```
+
+This can add command overhead while text streams. Claude Code does not expose
+an equivalent of Codex's per-model-request event.
+
+Keepalives are sent at hook boundaries, not on a timer. Configure
+`max_wait_time` high enough for the longest gap between hooks. See
+[Configuration](#-configuration) for the server-side limit.
 
 ## ⚡︎ Troubleshooting
 
