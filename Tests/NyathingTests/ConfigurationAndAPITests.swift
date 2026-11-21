@@ -215,7 +215,7 @@ final class ConfigurationTests: XCTestCase {
   func testFirstLaunchSeedsConfigurationAndSampleAnimation() throws {
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
     XCTAssertEqual(configuration.maxWaitTime, 180)
-    XCTAssertEqual(configuration.defaultAnimation, "nyathing_36x36.png")
+    XCTAssertEqual(configuration.defaultAnimation, "nyathing")
     XCTAssertTrue(
       FileManager.default.fileExists(
         atPath: temporaryDirectory.appendingPathComponent("config.toml").path))
@@ -260,13 +260,34 @@ final class ConfigurationTests: XCTestCase {
 
   func testRandomIsAcceptedAsDefaultAnimation() throws {
     let configurationText = AppConfiguration.template.replacingOccurrences(
-      of: "default_animation = \"nyathing_36x36.png\"",
+      of: "default_animation = \"nyathing\"",
       with: "default_animation = \"random\"")
     try writeConfiguration(configurationText)
 
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
 
     XCTAssertEqual(configuration.defaultAnimation, "random")
+    XCTAssertEqual(configuration.resolvedDefaultAnimation, "random")
+  }
+
+  func testDefaultAnimationAcceptsShortNameAndPaths() throws {
+    let external = temporaryDirectory.appendingPathComponent("custom # sprite_36x36.png")
+    try writePNG(width: 36, height: 36, to: external)
+    let installed = temporaryDirectory.appendingPathComponent("animations/nyathing_36x36.png")
+    for (value, expected) in [
+      ("nyathing", installed),
+      ("nyathing_36x36.png", installed),
+      (external.path, external),
+      ("./\(external.lastPathComponent)", external),
+    ] {
+      let configurationText = AppConfiguration.template.replacingOccurrences(
+        of: "default_animation = \"nyathing\"",
+        with: "default_animation = \"\(value)\"")
+      try writeConfiguration(configurationText)
+      let configuration = try AppConfiguration.load(in: temporaryDirectory)
+      XCTAssertEqual(configuration.defaultAnimation, value)
+      XCTAssertEqual(configuration.resolvedDefaultAnimation, expected.standardizedFileURL.path)
+    }
   }
 
   func testLoadsAnimationWithFrameDimensionsFromFilename() throws {
@@ -314,7 +335,7 @@ final class ConfigurationTests: XCTestCase {
   func testRemovesObsoleteIconSettingAndKeepsDefaultAnimation() throws {
     let oldTemplate = AppConfiguration.template
       .replacingOccurrences(
-        of: "default_animation = \"nyathing_36x36.png\"",
+        of: "default_animation = \"nyathing\"",
         with: "default_animation = \"ghost_36x36.png\""
       )
       .replacingOccurrences(

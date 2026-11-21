@@ -77,20 +77,14 @@ try:
 
     animations = os.environ.get("ANIMATIONS", "").replace(",", " ").split()
     if not animations:
-        animation = os.environ.get("ANIMATION")
-        if animation is None:
-            animation = configured_value(settings, "default_animation", "nyathing_36x36.png")
-            if animation != "random":
-                animation = str(config_path.parent / "animations" / animation)
-        animations = [animation]
+        animations = [os.environ.get("ANIMATION")]
     for animation in animations:
-        activity_id = request({
-            "command": "start",
-            "animation": animation,
-            "keepalive_interval_seconds": interval,
-        })["activity_id"]
+        payload = {"command": "start", "keepalive_interval_seconds": interval}
+        if animation is not None:
+            payload["animation"] = animation
+        activity_id = request(payload)["activity_id"]
         activity_ids.append(activity_id)
-        print(f"Started {animation} ({activity_id})")
+        print(f"Started {animation or 'default animation'} ({activity_id})")
 
     keepalive_delay = interval
     run_deadline = time.monotonic() + duration

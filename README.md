@@ -281,20 +281,23 @@ The complete initial configuration is:
 max_wait_time = 180
 # Whether to launch Nyathing automatically when you log in.
 auto_start = false
-# Animation filename (or "random") used when a client omits the animation field.
-default_animation = "nyathing_36x36.png"
+# Animation name, PNG path, or "random" used when a client omits the animation field.
+default_animation = "nyathing"
 ```
 
 Keep all three settings in your `config.toml`; Nyathing does not fill in omitted
 settings. Set `max_wait_time` to a positive number of seconds and `auto_start`
 to `true` or `false`. Clients use a default keepalive interval of 5 seconds,
 which they can override per activity. Activities expire after the smaller of
-twice that interval and `max_wait_time`. Set `default_animation` to a valid
-filename in `animations/` or to `random` to select a random animation per activity.
+twice that interval and `max_wait_time`. Like `--animation`, `default_animation`
+accepts a short name such as `nyathing`, a filename in `animations/`, a PNG path,
+or `random` to select an animation per activity. Relative paths in `config.toml`
+are resolved beside that file; CLI paths are relative to the working directory.
 Requests with an explicit animation use it; missing or unavailable requested
 animations fall back to the built-in ghost.
 Choose **Edit Configuration** from the menu to change these settings with
-visual controls. **Accept** saves the configuration and reloads settings and
+visual controls. **Choose PNG…** lets you select a file outside `animations/`
+and saves its full path. **Accept** saves the configuration and reloads settings and
 animations; this also clears active activities and the disconnected-client
 count. **Cancel** closes the editor without applying changes. Accepting the
 current settings also reloads animation files changed outside the editor.

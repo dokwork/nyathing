@@ -6,14 +6,15 @@ struct AppConfiguration {
   let maxWaitTime: TimeInterval
   let autoStart: Bool
   let defaultAnimation: String
+  let resolvedDefaultAnimation: String
 
   static let template = """
     # Maximum seconds to wait since the last client keepalive.
     max_wait_time = 180
     # Whether Nyathing should launch automatically when you log in.
     auto_start = false
-    # Animation filename (or "random") used when a client omits the animation field.
-    default_animation = "nyathing_36x36.png"
+    # Animation name, PNG path, or "random" used when a client omits the animation field.
+    default_animation = "nyathing"
     """
 
   static var configurationDirectory: URL {
@@ -161,24 +162,28 @@ struct AppConfiguration {
       throw ConfigError.invalidValue("auto_start")
     }
     guard let rawAnimation = values["default_animation"],
-      rawAnimation.count >= 2, rawAnimation.first == "\"", rawAnimation.last == "\""
-    else {
-      throw ConfigError.invalidValue("default_animation")
-    }
-    let defaultAnimation = String(rawAnimation.dropFirst().dropLast())
-    if defaultAnimation != "random" {
-      guard !defaultAnimation.contains("/"), !defaultAnimation.contains("\\"),
-        (try? SpriteAnimation.load(
-          from: animationsDirectory.appendingPathComponent(
-            defaultAnimation))) != nil
-      else {
-        throw ConfigError.invalidValue("default_animation")
-      }
+      let defaultAnimation = try? JSONDecoder().decode(String.self, from: Data(rawAnimation.utf8)),
+      !defaultAnimation.isEmpty
+    else { throw ConfigError.invalidValue("default_animation") }
+    let resolvedDefaultAnimation: String
+    do {
+      resolvedDefaultAnimation = try resolveDefaultAnimation(defaultAnimation, in: directory)
+    } catch {
+      throw ConfigError.invalidDefaultAnimation(error.localizedDescription)
     }
     return AppConfiguration(
       maxWaitTime: try number("max_wait_time"),
       autoStart: rawAuto == "true",
-      defaultAnimation: defaultAnimation)
+      defaultAnimation: defaultAnimation,
+      resolvedDefaultAnimation: resolvedDefaultAnimation)
+  }
+
+  static func resolveDefaultAnimation(_ value: String, in directory: URL) throws -> String {
+    // Keep random selection deferred until a client starts an activity.
+    if value == "random" { return value }
+    return try NyathingCLI.resolveAnimation(
+      value, in: directory.appendingPathComponent("animations", isDirectory: true),
+      relativeTo: directory)
   }
 }
 
@@ -186,6 +191,7 @@ enum ConfigError: LocalizedError {
   case invalidLine(Int)
   case invalidKey(String, Int)
   case invalidValue(String)
+  case invalidDefaultAnimation(String)
 
   var errorDescription: String? {
     switch self {
@@ -195,6 +201,8 @@ enum ConfigError: LocalizedError {
     case .invalidKey(let key, let line):
       return
         "Unknown or duplicate setting '\(key)' on line \(line). Use each supported setting once."
+    case .invalidDefaultAnimation(let reason):
+      return "Invalid 'default_animation': \(reason)"
     case .invalidValue(let key):
       switch key {
       case "max_wait_time":
@@ -204,7 +212,7 @@ enum ConfigError: LocalizedError {
           "Missing or invalid '\(key)'. Add it to config.toml with the value true or false."
       case "default_animation":
         return
-          "Missing or invalid 'default_animation'. Set it to the filename of a valid animation in the animations directory."
+          "Missing or invalid 'default_animation'. Set it to an animation name, PNG path, or 'random'."
       default:
         return "Missing or invalid setting: \(key). Check config.toml and correct its value."
       }

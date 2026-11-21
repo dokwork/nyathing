@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 if arguments == [LaunchAgentSupport.serverArgument] {
@@ -380,10 +381,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       animationsByName[name] = animation
     }
     let animationNames = ["random"] + animationsByName.keys.sorted()
-    guard animationNames.count > 1 else {
-      showConfigurationEditorError("No valid animations are available.")
-      return
-    }
 
     let maxWaitTimeField = NSTextField(string: String(configuration.maxWaitTime))
     maxWaitTimeField.placeholderString = "Seconds"
@@ -395,12 +392,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       animationPicker.menu?.addItem(
         animationMenuItem(title: name, frame: animationsByName[name]?.frames.first))
     }
-    let selectedAnimationName =
-      Self.shortAnimationName(configuration.defaultAnimation)
-      ?? configuration.defaultAnimation
-    if let index = animationNames.firstIndex(of: selectedAnimationName) {
-      animationPicker.selectItem(at: index)
-    }
+    selectAnimation(configuration.defaultAnimation, in: animationPicker)
+    let browseButton = NSButton(
+      title: "Choose PNG…", target: self, action: #selector(chooseConfigurationAnimation))
+    let animationControls = NSStackView(views: [animationPicker, browseButton])
+    animationControls.spacing = 8
+    animationPicker.widthAnchor.constraint(equalToConstant: 170).isActive = true
 
     let autoStart = NSButton(
       checkboxWithTitle: "Launch Nyathing at login", target: self, action: nil)
@@ -418,7 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     let fields = NSStackView(views: [
       row("Maximum wait time (seconds)", control: maxWaitTimeField),
-      row("Default animation", control: animationPicker),
+      row("Default animation", control: animationControls),
       autoStart,
     ])
     fields.orientation = .vertical
@@ -450,7 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     ])
 
     let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 430, height: 230),
+      contentRect: NSRect(x: 0, y: 0, width: 540, height: 230),
       styleMask: [.titled, .closable], backing: .buffered, defer: false)
     window.title = "Edit Configuration"
     window.isReleasedWhenClosed = false
@@ -463,6 +460,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     window.center()
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  private func selectAnimation(_ value: String, in picker: NSPopUpButton) {
+    if let item = picker.itemArray.first(where: { ($0.representedObject as? String) == value }) {
+      picker.select(item)
+      return
+    }
+    let title = URL(fileURLWithPath: value).lastPathComponent
+    let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+    item.representedObject = value
+    item.toolTip = value
+    picker.menu?.addItem(item)
+    picker.select(item)
+  }
+
+  @objc private func chooseConfigurationAnimation() {
+    guard let configurationWindow else { return }
+    let panel = NSOpenPanel()
+    panel.allowedContentTypes = [.png]
+    panel.beginSheetModal(for: configurationWindow) { [weak self] response in
+      guard response == .OK, let url = panel.url, let self, let picker = self.defaultAnimationPicker
+      else { return }
+      self.selectAnimation(url.path, in: picker)
+    }
   }
 
   @objc private func cancelConfigurationEdit() {
@@ -484,18 +505,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     let animation: String
-    if selectedAnimation == "random" {
-      animation = selectedAnimation
-    } else {
-      let animationDirectory = AppConfiguration.configurationDirectory
-        .appendingPathComponent("animations", isDirectory: true)
-      do {
-        let resolved = try NyathingCLI.resolveAnimation(selectedAnimation, in: animationDirectory)
-        animation = URL(fileURLWithPath: resolved).lastPathComponent
-      } catch {
-        showConfigurationEditorError(error.localizedDescription)
-        return
-      }
+    do {
+      _ = try AppConfiguration.resolveDefaultAnimation(
+        selectedAnimation, in: AppConfiguration.configurationDirectory)
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.withoutEscapingSlashes]
+      animation = String(decoding: try encoder.encode(selectedAnimation), as: UTF8.self)
+    } catch {
+      showConfigurationEditorError(error.localizedDescription)
+      return
     }
 
     let configurationText = """
@@ -503,8 +521,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       max_wait_time = \(maxWaitTime)
       # Whether Nyathing should launch automatically when you log in.
       auto_start = \(autoStartCheckbox.state == .on ? "true" : "false")
-      # Animation filename used when a client omits the animation field.
-      default_animation = "\(animation)"
+      # Animation name, PNG path, or "random" used when a client omits the animation field.
+      default_animation = \(animation)
       """
 
     let configurationURL = AppConfiguration.configurationDirectory
@@ -555,7 +573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NyathingLog.report(error, context: "Unable to configure login launch")
       }
       maxWaitTime = configuration.maxWaitTime
-      defaultAnimation = configuration.defaultAnimation
+      defaultAnimation = configuration.resolvedDefaultAnimation
       try startAPIServer()
     } catch {
       let configurationURL = AppConfiguration.configurationDirectory.appendingPathComponent(
@@ -575,14 +593,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
   private func startAPIServer() throws {
     let generation = apiGeneration
-    let animationsDirectory = AppConfiguration.configurationDirectory
-      .appendingPathComponent("animations", isDirectory: true)
-    let serverDefaultAnimation =
-      defaultAnimation == "random"
-      ? defaultAnimation
-      : animationsDirectory.appendingPathComponent(defaultAnimation).standardizedFileURL.path
     apiServer = LocalAPIServer(
-      defaultAnimation: serverDefaultAnimation,
+      defaultAnimation: defaultAnimation,
       maxWaitTime: maxWaitTime,
       onStart: {
         [weak self] filename, description, requestedID, interval, intervalWasProvided, timeout in

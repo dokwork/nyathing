@@ -251,7 +251,7 @@ enum NyathingCLI {
     let animationsDirectory = AppConfiguration.configurationDirectory
       .appendingPathComponent("animations", isDirectory: true)
     let animation = try resolveAnimation(
-      cli.animation ?? configuration.defaultAnimation, in: animationsDirectory)
+      cli.animation ?? configuration.resolvedDefaultAnimation, in: animationsDirectory)
     let keepaliveInterval = LocalAPIServer.defaultKeepaliveInterval
     let client = try LocalAPIClient.connectOrStartServer()
     let activity = try client.command([
@@ -318,7 +318,11 @@ enum NyathingCLI {
     _ = try resolveAnimation(filename, in: directory)
   }
 
-  static func resolveAnimation(_ name: String, in directory: URL) throws -> String {
+  static func resolveAnimation(
+    _ name: String, in directory: URL,
+    relativeTo baseDirectory: URL = URL(
+      fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+  ) throws -> String {
     if name == "random" {
       if let namedAnimation = try? resolveNamedAnimation(name, in: directory) {
         return namedAnimation
@@ -331,9 +335,14 @@ enum NyathingCLI {
     if isShortAnimationName(name) {
       return try resolveNamedAnimation(name, in: directory)
     }
+    if !name.contains("/"), !name.contains("\\") {
+      let installed = directory.appendingPathComponent(name).standardizedFileURL
+      if FileManager.default.fileExists(atPath: installed.path) {
+        return try resolveAnimation(installed.path, in: directory)
+      }
+    }
     let path = URL(
-      fileURLWithPath: (name as NSString).expandingTildeInPath,
-      relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+      fileURLWithPath: (name as NSString).expandingTildeInPath, relativeTo: baseDirectory
     ).standardizedFileURL
     do {
       _ = try SpriteAnimation.load(from: path)
