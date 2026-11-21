@@ -39,9 +39,8 @@ struct CLIArguments {
   let arguments: [String]
 
   static var usage: String {
-    let version =
-      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-      ?? "Development build"
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+      ?? AppVersion.current
     return """
       Nyathing displays playful animations in the macOS menu bar while commands run.
 
@@ -130,7 +129,7 @@ enum NyathingCLI {
     if arguments == ["--version"] {
       print(
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-          ?? "Development build")
+          ?? AppVersion.current)
       return 0
     }
     do {

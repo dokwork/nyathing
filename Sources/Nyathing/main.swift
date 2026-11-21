@@ -170,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       Bundle.main.object(
         forInfoDictionaryKey: "CFBundleShortVersionString"
       ) as? String
-    let version = bundleVersion ?? "Development build"
+    let version = bundleVersion ?? AppVersion.current
     var options: [NSApplication.AboutPanelOptionKey: Any] = [
       .applicationName: "Nyathing",
       .applicationVersion: version,

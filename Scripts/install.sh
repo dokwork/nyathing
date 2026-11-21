@@ -16,6 +16,7 @@ if [[ -z "$SOURCE_DIR" ]]; then
     SOURCE_DIR="$SCRIPT_DIR"
   else
     cd "$ROOT"
+    bash Scripts/generate-version.sh
     swift build -c release
     SOURCE_DIR="$ROOT/.build/release"
   fi

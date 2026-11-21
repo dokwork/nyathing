@@ -9,6 +9,7 @@ if [[ "$(uname -m)" != "arm64" ]]; then
   exit 1
 fi
 
+bash Scripts/generate-version.sh
 swift build -c release
 BUILD_DIR="$ROOT/.build"
 OUT_DIR="$ROOT/out"
