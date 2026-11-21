@@ -3,7 +3,7 @@ set -euo pipefail
 
 prefix="${PREFIX:-/usr/local}"
 if [[ "$prefix" != /* || "$prefix" == / || "$prefix" == "$HOME" \
-  || "$prefix" == "$HOME"/* || "/$prefix/" == */../* ]]; then
+  || "/$prefix/" == */../* ]]; then
   echo "Refusing unsafe PREFIX: $prefix" >&2
   exit 1
 fi

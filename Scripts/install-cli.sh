@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 PREFIX="${PREFIX:-/usr/local}"
 if [[ "$PREFIX" != /* || "$PREFIX" == / || "$PREFIX" == "$HOME" \
-  || "$PREFIX" == "$HOME"/* || "/$PREFIX/" == */../* ]]; then
+  || "/$PREFIX/" == */../* ]]; then
   echo "Refusing unsafe PREFIX: $PREFIX" >&2
   exit 1
 fi
