@@ -245,17 +245,16 @@ final class ConfigurationTests: XCTestCase {
   func testMigratesLegacyKeepaliveConfiguration() throws {
     let legacy = AppConfiguration.template.replacingOccurrences(
       of: "max_wait_time = 180",
-      with: "keepalive_interval_seconds = 7\nactivity_timeout_seconds = 24")
+      with: "keepalive_interval_seconds = 7")
     try writeConfiguration(legacy)
 
     let configuration = try AppConfiguration.load(in: temporaryDirectory)
 
-    XCTAssertEqual(configuration.maxWaitTime, 24)
+    XCTAssertEqual(configuration.maxWaitTime, 180)
     let saved = try String(
       contentsOf: temporaryDirectory.appendingPathComponent("config.toml"), encoding: .utf8)
     XCTAssertFalse(saved.contains("keepalive_interval_seconds"))
-    XCTAssertFalse(saved.contains("activity_timeout_seconds"))
-    XCTAssertTrue(saved.contains("max_wait_time = 24"))
+    XCTAssertTrue(saved.contains("max_wait_time = 180"))
   }
 
   func testRandomIsAcceptedAsDefaultAnimation() throws {
@@ -410,6 +409,22 @@ final class ConfigurationTests: XCTestCase {
 }
 
 final class ActivityLifecycleTests: XCTestCase {
+  func testCancelledIDIsReservedUntilItsDeadlineWithoutConsumingIt() {
+    var cancelled = CancelledActivityIDs()
+    let start = DispatchTime(uptimeNanoseconds: 1_000_000_000)
+    let deadline = cancelled.reserve("test", for: 5, now: start)
+    XCTAssertEqual(deadline, start + .seconds(5))
+    XCTAssertTrue(cancelled.contains("test", now: start + .seconds(1)))
+    XCTAssertTrue(cancelled.contains("test", now: start + .seconds(4)))
+    XCTAssertFalse(cancelled.contains("test", now: deadline))
+
+    let replacement = cancelled.reserve("test", for: 2, now: deadline)
+    cancelled.remove("test", deadline: deadline)
+    XCTAssertTrue(cancelled.contains("test", now: deadline))
+    cancelled.remove("test", deadline: replacement)
+    XCTAssertFalse(cancelled.contains("test", now: deadline))
+  }
+
   func testAggregatesActivitiesAndDistinguishesExplicitStopFromTimeout() throws {
     var lifecycle = ActivityLifecycle()
     let first = lifecycle.start(animation: "same_36x36.png", deadline: 10)
@@ -525,10 +540,59 @@ final class LocalAPIServerTests: XCTestCase {
       try client.command(["command": "start", "animation": "nyathing"])["ok"] as? Bool, true)
     let invalid = try client.command(["command": "start", "animation": "not-installed"])
     XCTAssertEqual(invalid["ok"] as? Bool, false)
+    XCTAssertEqual(invalid["error_code"] as? String, "animation_unavailable")
     XCTAssertTrue((invalid["error"] as? String)?.contains("not-installed") == true)
     let omitted = try client.command(["command": "start"])
     XCTAssertEqual(omitted["ok"] as? Bool, false)
+    XCTAssertEqual(omitted["error_code"] as? String, "invalid_default_animation")
     XCTAssertTrue((omitted["error"] as? String)?.contains("default_animation") == true)
+  }
+
+  func testRequestFailuresIncludeStableCodesAndReadableMessages() throws {
+    let directory = URL(
+      fileURLWithPath: "/tmp/nyathing-\(UUID().uuidString.prefix(8))", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let socketPath = directory.appendingPathComponent("api.sock").path
+    let server = LocalAPIServer(
+      socketPath: socketPath, defaultAnimation: { "nyathing" },
+      onStart: { _, _, _, _, _, _ in throw LocalAPIError.activityIDInUse("test") },
+      onKeepalive: { _ in throw LocalAPIError.animationCancelled },
+      onStop: { id in
+        if id == "test" { throw LocalAPIError.animationCancelled }
+        throw LocalAPIError.unknownActivity
+      })
+    try server.start()
+    defer { server.stop() }
+
+    let client = try UnixJSONClient(path: socketPath)
+    let malformed = try client.commandLine(Data("{".utf8))
+    XCTAssertEqual(malformed["ok"] as? Bool, false)
+    XCTAssertEqual(malformed["error_code"] as? String, "invalid_request")
+    XCTAssertEqual(malformed["error"] as? String, "Invalid JSON Lines request.")
+
+    let cases: [([String: Any], String, String)] = [
+      (["command": "bogus"], "unknown_command", "Unknown command: bogus."),
+      (
+        ["command": "start", "activity_id": "test"], "activity_id_in_use",
+        "Activity ID \"test\" is already in use."
+      ),
+      (
+        ["command": "keepalive", "activity_id": "test"], "animation_cancelled",
+        "Animation was cancelled."
+      ),
+      (
+        ["command": "stop", "activity_id": "test"], "animation_cancelled",
+        "Animation was cancelled."
+      ),
+      (["command": "stop", "activity_id": "missing"], "unknown_activity", "Unknown activity ID."),
+    ]
+    for (request, code, message) in cases {
+      let response = try client.command(request)
+      XCTAssertEqual(response["ok"] as? Bool, false)
+      XCTAssertEqual(response["error_code"] as? String, code)
+      XCTAssertEqual(response["error"] as? String, message)
+    }
   }
 
   func testMultipleCommandsOnConnectionAndConcurrentClients() throws {
@@ -585,12 +649,6 @@ final class LocalAPIServerTests: XCTestCase {
     ])
     XCTAssertEqual(largeInterval["activity_id"] as? String, "activity-2")
     XCTAssertEqual(startedTimeouts[1], 30)
-    let clientTimeoutOverride = try first.command([
-      "command": "start", "keepalive_interval_seconds": 5, "activity_timeout_seconds": 10,
-    ])
-    XCTAssertEqual(clientTimeoutOverride["ok"] as? Bool, false)
-    XCTAssertTrue(
-      (clientTimeoutOverride["error"] as? String)?.contains("controlled by the server") == true)
     let firstStart = try first.command([
       "command": "start", "activity_id": "turn-123", "animation": "same_36x36.png",
       "description": "first client", "keepalive_interval_seconds": 8,
@@ -695,7 +753,11 @@ private final class UnixJSONClient {
   deinit { Darwin.close(descriptor) }
 
   func command(_ request: [String: Any]) throws -> [String: Any] {
-    var data = try JSONSerialization.data(withJSONObject: request)
+    try commandLine(JSONSerialization.data(withJSONObject: request))
+  }
+
+  func commandLine(_ line: Data) throws -> [String: Any] {
+    var data = line
     data.append(0x0A)
     let written = data.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress!, $0.count) }
     guard written == data.count else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }

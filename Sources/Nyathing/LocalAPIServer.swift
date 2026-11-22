@@ -212,13 +212,13 @@ final class LocalAPIServer {
         let line = Data(pending[..<newline])
         pending.removeSubrange(...newline)
         guard line.count <= 1_048_576 else {
-          _ = writeResponse(["ok": false, "error": "Request line is too large."], to: client)
+          _ = writeResponse(errorResponse(.requestTooLarge), to: client)
           return
         }
         guard writeResponse(handle(line), to: client) else { return }
       }
       if pending.count > 1_048_576 {
-        _ = writeResponse(["ok": false, "error": "Request line is too large."], to: client)
+        _ = writeResponse(errorResponse(.requestTooLarge), to: client)
         return
       }
     }
@@ -226,10 +226,10 @@ final class LocalAPIServer {
 
   private func handle(_ line: Data) -> [String: Any] {
     guard isRunning else {
-      return ["ok": false, "error": LocalAPIError.unavailable.localizedDescription]
+      return errorResponse(.unavailable)
     }
     do {
-      guard let request = try JSONSerialization.jsonObject(with: line) as? [String: Any],
+      guard let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
         let command = request["command"] as? String
       else {
         throw LocalAPIError.invalidRequest
@@ -244,14 +244,15 @@ final class LocalAPIServer {
           }
           animation = value
         } else {
-          animation = try settings.defaultAnimation()
+          do {
+            animation = try settings.defaultAnimation()
+          } catch {
+            throw LocalAPIError.invalidDefaultAnimation(error.localizedDescription)
+          }
         }
         let requestedActivityID = request["activity_id"] as? String
         if request["activity_id"] != nil && (requestedActivityID?.isEmpty ?? true) {
           throw LocalAPIError.invalidRequest
-        }
-        guard request["activity_timeout_seconds"] == nil else {
-          throw LocalAPIError.serverManagedActivityTimeout
         }
         let keepaliveIntervalWasProvided = request["keepalive_interval_seconds"] != nil
         let keepaliveInterval: TimeInterval
@@ -282,9 +283,23 @@ final class LocalAPIServer {
       default:
         throw LocalAPIError.unknownCommand(command)
       }
+    } catch let error as LocalAPIError {
+      return errorResponse(error)
+    } catch CLIError.animationUnavailable(let filename, let reason) {
+      return errorResponse(.animationUnavailable("Animation '\(filename)' \(reason)"))
+    } catch let error as AnimationError {
+      return errorResponse(.animationUnavailable(error.localizedDescription))
     } catch {
-      return ["ok": false, "error": error.localizedDescription]
+      return errorResponse(.internalError)
     }
+  }
+
+  private func errorResponse(_ error: LocalAPIError) -> [String: Any] {
+    let error = error.protocolCode == nil ? .internalError : error
+    return [
+      "ok": false, "error_code": error.protocolCode ?? "internal_error",
+      "error": error.localizedDescription,
+    ]
   }
 
   @discardableResult
@@ -349,14 +364,35 @@ enum LocalAPIError: LocalizedError {
   case unavailable
   case invalidRequest
   case invalidKeepaliveInterval
-  case serverManagedActivityTimeout
   case unknownCommand(String)
   case unknownActivity
   case animationCancelled
+  case requestTooLarge
+  case invalidDefaultAnimation(String)
+  case animationUnavailable(String)
+  case internalError
   case activityIDInUse(String)
   case socketPathTooLong
   case alreadyRunning(String)
   case unsafeSocketPath(String)
+
+  /// Stable wire identifier for request failures; transport setup errors have no code.
+  var protocolCode: String? {
+    switch self {
+    case .unavailable: return "server_unavailable"
+    case .invalidRequest: return "invalid_request"
+    case .invalidKeepaliveInterval: return "invalid_keepalive_interval"
+    case .unknownCommand: return "unknown_command"
+    case .unknownActivity: return "unknown_activity"
+    case .animationCancelled: return "animation_cancelled"
+    case .activityIDInUse: return "activity_id_in_use"
+    case .requestTooLarge: return "request_too_large"
+    case .invalidDefaultAnimation: return "invalid_default_animation"
+    case .animationUnavailable: return "animation_unavailable"
+    case .internalError: return "internal_error"
+    case .socketPathTooLong, .alreadyRunning, .unsafeSocketPath: return nil
+    }
+  }
 
   var errorDescription: String? {
     switch self {
@@ -364,12 +400,13 @@ enum LocalAPIError: LocalizedError {
     case .invalidRequest: return "Invalid JSON Lines request."
     case .invalidKeepaliveInterval:
       return "'keepalive_interval_seconds' must be a positive finite number of seconds."
-    case .serverManagedActivityTimeout:
-      return
-        "'activity_timeout_seconds' is controlled by the server and cannot be set per activity."
     case .unknownCommand(let command): return "Unknown command: \(command)."
     case .unknownActivity: return "Unknown activity ID."
     case .animationCancelled: return "Animation was cancelled."
+    case .requestTooLarge: return "Request line is too large."
+    case .invalidDefaultAnimation(let reason): return "Cannot use the default animation: \(reason)"
+    case .animationUnavailable(let reason): return "Cannot load the animation: \(reason)"
+    case .internalError: return "An internal server error occurred."
     case .activityIDInUse(let id): return "Activity ID \"\(id)\" is already in use."
     case .socketPathTooLong: return "The local API socket path is too long."
     case .alreadyRunning(let path): return "Another Nyathing instance is listening at \(path)."

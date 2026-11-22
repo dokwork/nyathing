@@ -143,8 +143,8 @@ nyathing client start
 The server starts automatically if it is not already running.
 On `start` Nyathing prints the activity ID.
 
-You can provide an ID with `--activity-id`; starting an already active ID fails
-with an error:
+You can provide an ID with `--activity-id`. Starting an active or reserved ID
+fails with an error:
 
 ```sh
 nyathing client start --activity-id "$(uuidgen)"
@@ -349,7 +349,7 @@ messages are supported:
 | `animation`                  | string | No       | Short name searched in the server's animation directory, or a path to a PNG sprite sheet. Defaults to the server's configured animation. Invalid explicit values return an error.                                       |
 | `description`                | string | No       | Description shown for the activity. If omitted or not a string, the server uses its default description.                                                                                                                |
 | `keepalive_interval_seconds` | number | No       | Positive, finite interval in seconds at which the client promises to send keepalives. Defaults to 5 seconds. The activity expires after the smaller of twice this interval and the server's configured `max_wait_time`. |
-| `activity_id`                 | string | No       | Caller-provided activity ID. Must not match an active activity; otherwise the request fails and names the ID. If omitted, the server generates a UUID. |
+| `activity_id`                 | string | No       | Caller-provided activity ID. Must not match an active or reserved ID. If omitted, the server generates a UUID. |
 
 A short name without a frame-size suffix or `.png` is resolved in the server's
 animation directory. Other values are treated as file paths; relative paths
@@ -415,14 +415,40 @@ Successful `keepalive` and `stop` responses are:
 A failed request returns an error response:
 
 ```json
-{"ok":false,"error":"<error-message>"}
+{"ok":false,"error_code":"animation_cancelled","error":"Animation was cancelled."}
 ```
 
-Errors include malformed requests, unknown commands or activity identifiers,
-invalid keepalive intervals, per-activity timeout overrides, and oversized
-request lines. An activity expires after the smaller of twice its keepalive
-interval and the configured `max_wait_time`. Expiration increments the
-disconnected-client count; an explicit `stop` does not.
+Use `error_code` to identify the failure in client code. The existing `error`
+field is a human-readable message; angle brackets below mark variable text.
+Connection and socket setup failures do not return a JSON response.
+
+| Code                              | Reason                                                        | Message template                                                                         |
+| --------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------           |
+| `invalid_request`                 | Malformed JSON, invalid request shape, or invalid arguments.  | `Invalid JSON Lines request.`                                                            |
+| `request_too_large`               | The request line exceeds 1 MiB.                               | `Request line is too large.`                                                             |
+| `unknown_command`                 | The command is not supported.                                 | `Unknown command: <command>.`                                                            |
+| `invalid_keepalive_interval`      | The keepalive interval is not a positive finite number.       | `'keepalive_interval_seconds' must be a positive finite number of seconds.`              |
+| `activity_id_in_use`              | The requested ID is active or reserved after cancellation.    | `Activity ID "<activity-id>" is already in use.`                                         |
+| `unknown_activity`                | The activity ID is not recognized.                            | `Unknown activity ID.`                                                                   |
+| `animation_cancelled`             | A `keepalive` or `stop` targets a reserved, cancelled ID.     | `Animation was cancelled.`                                                               |
+| `invalid_default_animation`       | The configured default animation could not be resolved.       | `Cannot use the default animation: <reason>`                                             |
+| `animation_unavailable`           | The animation could not be resolved or loaded.                | `Cannot load the animation: <reason>`                                                    |
+| `server_unavailable`              | An in-flight request reaches the server during shutdown.     | `The local API is unavailable.`                                                          |
+| `internal_error`                  | An unexpected server error prevented completion.              | `An internal server error occurred.`                                                     |
+
+During shutdown the socket may close before the server can send
+`server_unavailable`; clients should also handle connection loss.
+
+An activity expires after the smaller of twice its keepalive interval and the
+configured `max_wait_time`. Expiration increments the disconnected-client
+count; an explicit `stop` does not.
+
+After **Cancel** in the app, the server reserves the ID for the `max_wait_time`
+configured at the moment of cancellation. During that period, every `keepalive`
+and `stop` for that ID returns `animation_cancelled`, and `start` with the same
+ID returns `activity_id_in_use`. Requests do not extend the reservation. Once it
+expires, `keepalive` and `stop` return `unknown_activity` until a successful
+`start` reuses the ID.
 
 ## ✦ Examples
 

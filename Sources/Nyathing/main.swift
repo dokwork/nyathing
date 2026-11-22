@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private var errorsStackView: NSStackView?
   private var activeActivitiesWindow: NSWindow?
   private var activeActivitiesStackView: NSStackView?
-  private var cancelledActivityIDs: Set<String> = []
+  private var cancelledActivityIDs = CancelledActivityIDs()
   private var configurationWindow: NSWindow?
   private var maxWaitTimeField: NSTextField?
   private var autoStartCheckbox: NSButton?
@@ -335,8 +335,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     guard let id = UUID(uuidString: sender.identifier?.rawValue ?? ""),
       let animation = lifecycle.animation(for: id)
     else { return }
-    for (externalID, mappedID) in externalActivityIDs where mappedID == id {
-      cancelledActivityIDs.insert(externalID)
+    if let externalID = externalActivityIDs.first(where: { $0.value == id })?.key {
+      externalActivityIDs.removeValue(forKey: externalID)
+      let deadline = cancelledActivityIDs.reserve(externalID, for: maxWaitTime)
+      DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
+        self?.cancelledActivityIDs.remove(externalID, deadline: deadline)
+      }
     }
     _ = lifecycle.stop(id)
     activityStartOrder.removeValue(forKey: id)
@@ -763,7 +767,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         [weak self] filename, description, requestedID, interval, intervalWasProvided, timeout in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
-          if let requestedID, self.externalActivityIDs[requestedID] != nil {
+          if let requestedID,
+            self.externalActivityIDs[requestedID] != nil
+              || self.cancelledActivityIDs.contains(requestedID)
+          {
             throw LocalAPIError.activityIDInUse(requestedID)
           }
           let id = try self.startActivity(
@@ -778,22 +785,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       onKeepalive: { [weak self] activityID in
         try DispatchQueue.main.sync {
           guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
-          if self.cancelledActivityIDs.remove(activityID) != nil {
-            self.externalActivityIDs.removeValue(forKey: activityID)
-            throw LocalAPIError.animationCancelled
-          }
-          guard let id = self.externalActivityIDs[activityID], self.keepaliveActivity(id) else {
+          let id = try self.activeActivityID(for: activityID)
+          guard self.keepaliveActivity(id) else {
             throw LocalAPIError.unknownActivity
           }
         }
       },
       onStop: { [weak self] activityID in
         try DispatchQueue.main.sync {
-          guard let self, self.apiGeneration == generation,
-            let id = self.externalActivityIDs[activityID], self.lifecycle.animation(for: id) != nil
-          else {
-            throw LocalAPIError.unknownActivity
-          }
+          guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
+          let id = try self.activeActivityID(for: activityID)
           self.stopActivity(id)
           self.externalActivityIDs.removeValue(forKey: activityID)
         }
@@ -801,6 +802,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     )
     try server.start()
     apiServer = server
+  }
+
+  private func activeActivityID(for externalID: String) throws -> UUID {
+    if cancelledActivityIDs.contains(externalID) {
+      throw LocalAPIError.animationCancelled
+    }
+    guard let id = externalActivityIDs[externalID], lifecycle.animation(for: id) != nil else {
+      throw LocalAPIError.unknownActivity
+    }
+    return id
   }
 
   /// Begins an activity for a named animation, sharing its status item with matching activities.

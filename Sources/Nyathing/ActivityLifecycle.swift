@@ -1,5 +1,31 @@
 import Foundation
 
+/// Reserves cancelled protocol IDs until their monotonic deadlines.
+struct CancelledActivityIDs {
+  private var deadlines: [String: DispatchTime] = [:]
+
+  /// Records a cancellation and returns the deadline for scheduled cleanup.
+  mutating func reserve(_ id: String, for duration: TimeInterval, now: DispatchTime = .now())
+    -> DispatchTime
+  {
+    let deadline = now + duration
+    deadlines[id] = deadline
+    return deadline
+  }
+
+  /// Checks the reservation without consuming it or extending its lifetime.
+  func contains(_ id: String, now: DispatchTime = .now()) -> Bool {
+    guard let deadline = deadlines[id] else { return false }
+    return now < deadline
+  }
+
+  /// Removes only the reservation associated with this cleanup callback.
+  mutating func remove(_ id: String, deadline: DispatchTime) {
+    guard deadlines[id] == deadline else { return }
+    deadlines.removeValue(forKey: id)
+  }
+}
+
 /// Tracks activity ownership, per-activity expiration generations, and disconnect accounting.
 struct ActivityLifecycle {
   static let missingDescription = "No description provided"

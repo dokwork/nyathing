@@ -123,11 +123,6 @@ struct AppConfiguration {
         if legacyMaxWaitTime == nil { legacyMaxWaitTime = "180" }
         return nil
       }
-      if key == "activity_timeout_seconds" {
-        removedObsoleteSettings = true
-        legacyMaxWaitTime = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
-        return nil
-      }
       if key == "animate_icon" {
         removedObsoleteSettings = true
         return nil
