@@ -27,7 +27,10 @@ private func runNyathingApplication(serverMode: Bool) {
 }
 
 private final class ActiveTaskMenuRow: NSView {
-  init(description: String, time: String, icon: NSImage, width: CGFloat, font: NSFont, timeWidth: CGFloat) {
+  init(
+    description: String, time: String, icon: NSImage, width: CGFloat, font: NSFont,
+    timeWidth: CGFloat
+  ) {
     super.init(frame: NSRect(x: 0, y: 0, width: width, height: 22))
     let imageView = NSImageView(image: icon)
     imageView.frame = NSRect(x: 0, y: 3, width: 16, height: 16)
@@ -42,14 +45,19 @@ private final class ActiveTaskMenuRow: NSView {
     let descriptionField = NSTextField(labelWithString: description)
     descriptionField.font = font
     descriptionField.lineBreakMode = .byTruncatingTail
-    descriptionField.frame = NSRect(x: 22, y: 2, width: max(0, width - 22 - timeWidth - 20), height: 18)
+    descriptionField.frame = NSRect(
+      x: 22, y: 2, width: max(0, width - 22 - timeWidth - 20), height: 18)
     addSubview(descriptionField)
   }
 
   required init?(coder: NSCoder) { nil }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
+private final class ActiveActivitiesDocumentView: NSView {
+  override var isFlipped: Bool { true }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private let serverMode: Bool
 
   init(serverMode: Bool = false) {
@@ -76,11 +84,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
   private var timedOutActivityDetails: [UUID: ActivityTimeoutDetails] = [:]
   private var activityStartOrder: [UUID: UInt64] = [:]
   private var activityStartUptime: [UUID: TimeInterval] = [:]
+  private var activeActivitiesOpenedAt: TimeInterval = 0
   private var nextActivityStartOrder: UInt64 = 0
   private var apiServer: LocalAPIServer?
   private var apiGeneration = 0
   private var errorsWindow: NSWindow?
   private var errorsStackView: NSStackView?
+  private var activeActivitiesWindow: NSWindow?
+  private var activeActivitiesStackView: NSStackView?
+  private var cancelledActivityIDs: Set<String> = []
   private var configurationWindow: NSWindow?
   private var maxWaitTimeField: NSTextField?
   private var autoStartCheckbox: NSButton?
@@ -113,10 +125,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
   private func configureMenu(for item: NSStatusItem) {
     let menu = NSMenu()
-    menu.delegate = self
     let activities = activeTaskMenuItems()
     for menuItem in activities { menu.addItem(menuItem) }
-    if !activities.isEmpty { menu.addItem(.separator()) }
+    if !activities.isEmpty {
+      menu.addItem(
+        withTitle: "View All Active Animations", action: #selector(viewActiveActivities(_:)),
+        keyEquivalent: "")
+      menu.addItem(.separator())
+    }
     if !lifecycle.timedOutActivities.isEmpty {
       menu.addItem(
         withTitle: "View Errors", action: #selector(viewErrors), keyEquivalent: "")
@@ -148,25 +164,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let active = activeAnimations[animation], !active.frames.isEmpty,
         let description = lifecycle.description(for: id)
       else { return nil }
-      let elapsed = max(0, ProcessInfo.processInfo.systemUptime - (activityStartUptime[id] ?? ProcessInfo.processInfo.systemUptime))
-      let time = "⏱ \(Self.formattedElapsedTime(elapsed))s"
-      let timeWidth = (time as NSString).size(withAttributes: [.font: font]).width
-      let descriptionWidth = max(0, availableWidth - timeWidth - 12)
-      let shortenedDescription = Self.truncatedMenuDescription(description, font: font, width: descriptionWidth)
-      let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+      let shortenedDescription = Self.truncatedMenuDescription(
+        description, font: font, width: availableWidth)
+      let item = NSMenuItem(title: shortenedDescription, action: nil, keyEquivalent: "")
       let firstFrame = active.frames[0]
       let menuIcon = (firstFrame.copy() as? NSImage) ?? firstFrame
       menuIcon.size = NSSize(width: iconColumnWidth, height: iconColumnWidth)
-      item.view = ActiveTaskMenuRow(
-        description: shortenedDescription, time: time, icon: menuIcon,
-        width: widestActionTitle * 1.3 + 18, font: font, timeWidth: timeWidth)
+      item.image = menuIcon
       item.isEnabled = false
       return item
     }
-  }
-
-  private static func formattedElapsedTime(_ elapsed: TimeInterval) -> String {
-    String(format: "%d:%02d", Int(elapsed) / 60, Int(elapsed) % 60)
   }
 
   private static func truncatedMenuDescription(_ text: String, font: NSFont, width: CGFloat)
@@ -182,14 +189,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
       result.removeLast()
     }
     return result.isEmpty ? ellipsis : result + ellipsis
-  }
-
-  func menuWillOpen(_ menu: NSMenu) {
-    if let mainStatusItem, mainStatusItem.menu === menu {
-      configureMenu(for: mainStatusItem)
-    } else if let active = activeAnimations.values.first(where: { $0.statusItem.menu === menu }) {
-      configureMenu(for: active.statusItem)
-    }
   }
 
   private func refreshStatusItemMenus() {
@@ -229,6 +228,125 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
   @objc private func quit() {
     NSApp.terminate(nil)
+  }
+
+  @objc private func viewActiveActivities(_ sender: NSMenuItem) {
+    if activeActivitiesWindow == nil {
+      let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 480, height: 300),
+        styleMask: [.titled, .closable, .miniaturizable, .resizable],
+        backing: .buffered, defer: false)
+      window.title = "Active Animations"
+      window.isReleasedWhenClosed = false
+      let scrollView = NSScrollView()
+      scrollView.hasVerticalScroller = true
+      let stack = NSStackView()
+      stack.orientation = .vertical
+      stack.alignment = .leading
+      stack.spacing = 10
+      stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 20, right: 20)
+      let document = ActiveActivitiesDocumentView()
+      document.translatesAutoresizingMaskIntoConstraints = false
+      stack.translatesAutoresizingMaskIntoConstraints = false
+      document.addSubview(stack)
+      scrollView.documentView = document
+      window.contentView = scrollView
+      NSLayoutConstraint.activate([
+        document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+        stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+        stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+        stack.topAnchor.constraint(equalTo: document.topAnchor),
+        stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+      ])
+      activeActivitiesWindow = window
+      activeActivitiesStackView = stack
+    }
+    activeActivitiesOpenedAt = ProcessInfo.processInfo.systemUptime
+    refreshActiveActivitiesWindow()
+    activeActivitiesWindow?.center()
+    activeActivitiesWindow?.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  private func refreshActiveActivitiesWindow() {
+    guard let stack = activeActivitiesStackView else { return }
+    for view in Array(stack.arrangedSubviews) {
+      stack.removeArrangedSubview(view)
+      view.removeFromSuperview()
+    }
+    let ids = activityStartOrder.keys.sorted {
+      activityStartOrder[$0, default: 0] > activityStartOrder[$1, default: 0]
+    }
+    for id in ids {
+      guard let animation = lifecycle.animation(for: id),
+        let active = activeAnimations[animation], let description = lifecycle.description(for: id)
+      else { continue }
+      let row = NSStackView()
+      row.orientation = .horizontal
+      row.alignment = .centerY
+      row.spacing = 10
+      if let frame = active.frames.first {
+        let icon = NSImageView(image: frame)
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        row.addArrangedSubview(icon)
+        NSLayoutConstraint.activate([
+          icon.widthAnchor.constraint(equalToConstant: 24),
+          icon.heightAnchor.constraint(equalToConstant: 24),
+        ])
+      }
+      let idLabel = NSTextField(labelWithString: "ID: \(id.uuidString)")
+      idLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+      idLabel.lineBreakMode = .byTruncatingTail
+      idLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      row.addArrangedSubview(idLabel)
+      let spacer = NSView()
+      spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+      row.addArrangedSubview(spacer)
+      let cancel = NSButton(
+        title: "Cancel", target: self, action: #selector(cancelActiveActivity(_:)))
+      cancel.identifier = NSUserInterfaceItemIdentifier(id.uuidString)
+      row.addArrangedSubview(cancel)
+
+      let block = NSStackView()
+      block.orientation = .vertical
+      block.alignment = .leading
+      block.spacing = 5
+      block.addArrangedSubview(row)
+      row.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+
+      let descriptionLabel = NSTextField(wrappingLabelWithString: "Description: \(description)")
+      descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      block.addArrangedSubview(descriptionLabel)
+      descriptionLabel.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+
+      let startedAt = activityStartUptime[id] ?? activeActivitiesOpenedAt
+      let elapsed = Int(max(0, activeActivitiesOpenedAt - startedAt))
+      let duration = String(format: "%ld:%02ld", elapsed / 60, elapsed % 60)
+      block.addArrangedSubview(NSTextField(labelWithString: "Time spent: \(duration)"))
+      stack.addArrangedSubview(block)
+      block.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
+    }
+    if stack.arrangedSubviews.isEmpty {
+      stack.addArrangedSubview(NSTextField(labelWithString: "No active animations"))
+    }
+  }
+
+  @objc private func cancelActiveActivity(_ sender: NSButton) {
+    guard let id = UUID(uuidString: sender.identifier?.rawValue ?? ""),
+      let animation = lifecycle.animation(for: id)
+    else { return }
+    for (externalID, mappedID) in externalActivityIDs where mappedID == id {
+      cancelledActivityIDs.insert(externalID)
+    }
+    _ = lifecycle.stop(id)
+    activityStartOrder.removeValue(forKey: id)
+    activityStartUptime.removeValue(forKey: id)
+    activityTimeouts.removeValue(forKey: id)
+    activityKeepaliveIntervals.removeValue(forKey: id)
+    activityKeepaliveIntervalSources.removeValue(forKey: id)
+    removeActivityFromStatusItem(id, animation: animation)
+    refreshStatusItemMenus()
+    refreshActiveActivitiesWindow()
   }
 
   @objc private func viewErrors() {
@@ -659,9 +777,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
       },
       onKeepalive: { [weak self] activityID in
         try DispatchQueue.main.sync {
-          guard let self, self.apiGeneration == generation,
-            let id = self.externalActivityIDs[activityID], self.keepaliveActivity(id)
-          else {
+          guard let self, self.apiGeneration == generation else { throw LocalAPIError.unavailable }
+          if self.cancelledActivityIDs.remove(activityID) != nil {
+            self.externalActivityIDs.removeValue(forKey: activityID)
+            throw LocalAPIError.animationCancelled
+          }
+          guard let id = self.externalActivityIDs[activityID], self.keepaliveActivity(id) else {
             throw LocalAPIError.unknownActivity
           }
         }
@@ -726,6 +847,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
       updateMainStatusItemVisibility()
       updateMainStatusItem()
       refreshStatusItemMenus()
+      refreshActiveActivitiesWindow()
       return id
     }
 
@@ -739,6 +861,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     updateMainStatusItemVisibility()
     updateMainStatusItem()
     refreshStatusItemMenus()
+    refreshActiveActivitiesWindow()
     return id
   }
 
@@ -749,6 +872,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     activityKeepaliveIntervals.removeValue(forKey: id)
     activityKeepaliveIntervalSources.removeValue(forKey: id)
     activityStartOrder.removeValue(forKey: id)
+    activityStartUptime.removeValue(forKey: id)
+    refreshActiveActivitiesWindow()
     removeActivityFromStatusItem(id, animation: filename)
     refreshStatusItemMenus()
   }
@@ -869,6 +994,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
       keepaliveInterval: interval, intervalSource: intervalSource,
       timeout: timeout, maxWaitTime: maxWaitTime)
     activityStartOrder.removeValue(forKey: id)
+    activityStartUptime.removeValue(forKey: id)
+    refreshActiveActivitiesWindow()
     removeActivityFromStatusItem(id, animation: expired.animation)
     refreshStatusItemMenus()
     presentActivityTimeout()

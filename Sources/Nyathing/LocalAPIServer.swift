@@ -352,6 +352,7 @@ enum LocalAPIError: LocalizedError {
   case serverManagedActivityTimeout
   case unknownCommand(String)
   case unknownActivity
+  case animationCancelled
   case activityIDInUse(String)
   case socketPathTooLong
   case alreadyRunning(String)
@@ -368,6 +369,7 @@ enum LocalAPIError: LocalizedError {
         "'activity_timeout_seconds' is controlled by the server and cannot be set per activity."
     case .unknownCommand(let command): return "Unknown command: \(command)."
     case .unknownActivity: return "Unknown activity ID."
+    case .animationCancelled: return "Animation was cancelled."
     case .activityIDInUse(let id): return "Activity ID \"\(id)\" is already in use."
     case .socketPathTooLong: return "The local API socket path is too long."
     case .alreadyRunning(let path): return "Another Nyathing instance is listening at \(path)."
