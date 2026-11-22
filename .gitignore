@@ -1,5 +1,6 @@
 .agents/
 .build/
+Sources/Nyathing/Version.swift
 .swiftpm/
 out/
 dist/

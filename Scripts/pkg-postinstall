@@ -1,5 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-mkdir -p /usr/local/bin
-ln -s /Applications/Nyathing.app/Contents/MacOS/nyathing /usr/local/bin/nyathing

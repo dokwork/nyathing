@@ -2,10 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,11 +17,41 @@ jobs:
     runs-on: macos-26
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Check formatting
         run: make lint
+      - name: Generate version
+        run: bash Scripts/generate-version.sh
       - name: Run tests
         run: swift test
+
+  build-cli-artifact:
+    name: Build downloadable CLI archive
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    needs: test
+    runs-on: macos-26
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v5
+      - name: Build CLI archive
+        run: Scripts/package-cli.sh
+      - name: Test installed archive
+        shell: bash
+        run: |
+          prefix="$RUNNER_TEMP/nyathing-prefix"
+          config="$RUNNER_TEMP/nyathing-config"
+          mkdir -p "$prefix" "$config"
+          PREFIX="$prefix" bash out/nyathing-macos-arm64/install.sh
+          XDG_CONFIG_HOME="$config" "$prefix/bin/nyathing" list
+          test -x "$prefix/libexec/nyathing/nyathing"
+          test -d "$prefix/libexec/nyathing/Nyathing_Nyathing.bundle"
+      - name: Upload CLI archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: nyathing-macos-arm64
+          path: out/nyathing-macos-arm64/*
+          if-no-files-found: error
+          retention-days: 14
 
   release:
     name: Build and publish tagged release
@@ -31,7 +62,7 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Validate release tag and target branch
@@ -49,16 +80,14 @@ jobs:
             exit 1
           fi
           echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
-      - name: Build installer package
-        env:
-          VERSION: ${{ steps.version.outputs.value }}
-        run: Scripts/build-pkg.sh
+      - name: Build CLI archive
+        run: Scripts/package-cli.sh
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           target_commitish: ${{ github.sha }}
           name: Nyathing ${{ steps.version.outputs.value }}
           generate_release_notes: true
-          files: out/Nyathing-${{ steps.version.outputs.value }}.pkg
+          files: out/nyathing-macos-arm64.tar.gz
           fail_on_unmatched_files: true

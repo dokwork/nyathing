@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help format lint test package run install-app install-cli-link uninstall
+.PHONY: help format lint test archive run install uninstall reinstall
 
 help:
 	@printf '%s\n' \
@@ -9,11 +9,11 @@ help:
 	  '  format           Format Swift files in Sources/ and Tests/' \
 	  '  lint             Check Swift formatting' \
 	  '  test             Run the Swift test suite' \
-	  '  package          Build the macOS installer package' \
-	  '  run              Run animations for five seconds (ANIMATIONS="a b" optional)' \
-	  '  install-app      Build and install Nyathing.app in /Applications' \
-	  '  install-cli-link Create the /usr/local/bin/nyathing symlink' \
-	  '  uninstall        Force-remove the app, CLI command, and user data'
+	  '  archive          Build a downloadable CLI archive' \
+	  '  run              Run animations (DURATION=5 seconds; ANIMATIONS="a b" optional)' \
+	  '  install          Build and install the CLI in $(PREFIX)/bin' \
+	  '  uninstall        Remove the CLI and legacy app (keeps user data)' \
+	  '  reinstall        Reinstall Nyathing using the selected PREFIX'
 
 format:
 	@find Sources Tests -type f -name '*.swift' -print0 | xargs -0 swift format format --in-place
@@ -24,18 +24,21 @@ lint:
 test:
 	swift test
 
-package:
-	Scripts/build-pkg.sh
+archive:
+	bash Scripts/package-cli.sh
 
-install-app:
-	bash Scripts/install-app.sh
+PREFIX ?= /usr/local
 
-install-cli-link:
-	bash Scripts/install-cli-link.sh
+install:
+	PREFIX='$(PREFIX)' bash Scripts/install.sh
 
 uninstall:
-	bash Scripts/force-uninstall.sh
+	PREFIX='$(PREFIX)' bash Scripts/force-uninstall.sh
+
+reinstall: uninstall install
+
+DURATION ?= 5
 
 run:
 	swift build
-	ANIMATION='$(ANIMATION)' ANIMATIONS='$(ANIMATIONS)' python3 Scripts/run-test-animation.py
+	ANIMATION='$(ANIMATION)' ANIMATIONS='$(ANIMATIONS)' DURATION='$(DURATION)' python3 Scripts/run-test-animation.py

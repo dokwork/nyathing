@@ -34,36 +34,56 @@ private final class KeepaliveFailure {
 }
 
 struct CLIArguments {
-  let animation: String
+  let animation: String?
   let command: String
   let arguments: [String]
 
-  static let usage = """
-    Nyathing displays playful animations in the macOS menu bar while commands run.
+  static var usage: String {
+    let version =
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+      ?? AppVersion.current
+    return """
+      Nyathing displays playful animations in the macOS menu bar while commands run.
 
-    Usage:
-      nyathing [--animation FILE | -a FILE] COMMAND [ARGUMENT ...]
-      nyathing uninstall
-      nyathing --help
-      nyathing --version
+      Version:
+        \(version)
 
-    Commands:
-      COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
-      uninstall               Remove the installed app and CLI command.
+      Usage:
+        nyathing [--animation NAME | -a NAME] COMMAND [ARGUMENT ...]
+        nyathing server start|stop|status
+        nyathing client start|keepalive|stop
+        nyathing list
+        nyathing completion zsh|bash
+        nyathing --help
+        nyathing --version
 
-    Options:
-      -a, --animation FILE    Select an animation from the user animations folder.
-      --help                  Show this help.
-      --version               Show the app version.
+      Commands:
+        COMMAND [ARGUMENT ...]  Run a command while showing an activity animation.
+        server                  Manage the background server (start, stop, status).
+        client                  Start, refresh, or stop an activity.
+        list                    List available valid animations.
+        completion SHELL        Print shell completion code for zsh or bash.
 
-    Examples:
-      nyathing sleep 5
-      nyathing --animation nyan_54x36.png make test
-    """
+      Options:
+        -a, --animation NAME     Select a short animation name or path to a PNG.
+        --help                  Show this help.
+        --version               Show the app version.
+
+      Client usage:
+        nyathing client start [--animation NAME] [--description TEXT]
+                              [--activity-id ID] [--keepalive-interval SECONDS]
+        nyathing client keepalive ACTIVITY_ID
+        nyathing client stop ACTIVITY_ID
+
+      Examples:
+        nyathing sleep 5
+        nyathing --animation nyan make test
+      """
+  }
 
   static func parse(_ arguments: [String]) throws -> CLIArguments {
     var values = arguments
-    var animation = "nyathing_36x36.png"
+    var animation: String?
     if values.first == "--animation" || values.first == "-a" {
       guard values.count >= 3, !values[1].isEmpty else { throw CLIError.usage }
       animation = values[1]
@@ -77,24 +97,31 @@ struct CLIArguments {
 
 enum CLIError: LocalizedError {
   case usage
-  case animationUnavailable(String)
+  case animationUnavailable(String, String)
   case server(String)
   case api(String)
 
   var errorDescription: String? {
     switch self {
     case .usage: return CLIArguments.usage
-    case .animationUnavailable(let filename):
-      return "Animation not found or invalid: \(filename)."
+    case .animationUnavailable(let filename, let reason):
+      return "Animation '\(filename)' \(reason)"
     case .server(let message), .api(let message): return message
     }
   }
 }
 
 enum NyathingCLI {
+  static let builtInGhostAnimation = "__built_in_ghost__"
+
   static func run(_ arguments: [String]) -> Int32 {
-    if arguments == ["uninstall"] {
-      return NyathingUninstaller.run()
+    if arguments.count == 2, arguments[0] == "completion" {
+      guard let script = ShellCompletion.script(for: arguments[1]) else {
+        FileHandle.standardError.write(Data("Supported shells: zsh, bash\n".utf8))
+        return 1
+      }
+      print(script, terminator: "")
+      return 0
     }
     if arguments.isEmpty || arguments == ["--help"] {
       print(CLIArguments.usage)
@@ -103,10 +130,49 @@ enum NyathingCLI {
     if arguments == ["--version"] {
       print(
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-          ?? "Development build")
+          ?? AppVersion.current)
       return 0
     }
     do {
+      if arguments.first == "client" {
+        return try executeClient(Array(arguments.dropFirst()))
+      }
+      if arguments.count == 2, arguments[0] == "server" {
+        let configurationDirectory = AppConfiguration.configurationDirectory
+        switch arguments[1] {
+        case "start":
+          try LaunchAgentSupport.startServer(in: configurationDirectory)
+          print("Nyathing server started in the background.")
+          return 0
+        case "stop":
+          try LaunchAgentSupport.stopServer(in: configurationDirectory)
+          print("Nyathing server stopped.")
+          return 0
+        case "status":
+          let running = LaunchAgentSupport.serverIsRunning()
+          print(running ? "Nyathing server is running." : "Nyathing server is not running.")
+          return running ? 0 : 1
+        default:
+          throw CLIError.usage
+        }
+      }
+      if arguments == ["list"] {
+        let configurationDirectory = AppConfiguration.configurationDirectory
+        try AppConfiguration.prepareDirectory(configurationDirectory)
+        let directory =
+          configurationDirectory.appendingPathComponent("animations", isDirectory: true)
+        let names = SpriteAnimation.loadAll(in: directory).keys.compactMap { filename -> String? in
+          guard
+            let separator = filename.range(
+              of: #"_[0-9]+x[0-9]+\.png$"#, options: .regularExpression)
+          else { return nil }
+          return String(filename[..<separator.lowerBound])
+        }
+        for name in Set(names).sorted() {
+          print(name)
+        }
+        return 0
+      }
       let parsed = try CLIArguments.parse(arguments)
       return try execute(parsed)
     } catch {
@@ -115,15 +181,77 @@ enum NyathingCLI {
     }
   }
 
+  private static func executeClient(_ arguments: [String]) throws -> Int32 {
+    guard let subcommand = arguments.first else { throw CLIError.usage }
+    switch subcommand {
+    case "start":
+      var animation: String?
+      var description: String?
+      var activityID: String?
+      var interval: Double?
+      var index = 1
+      while index < arguments.count {
+        let option = arguments[index]
+        guard index + 1 < arguments.count else { throw CLIError.usage }
+        let value = arguments[index + 1]
+        guard !value.isEmpty else { throw CLIError.usage }
+        switch option {
+        case "--animation", "-a":
+          guard animation == nil else { throw CLIError.usage }
+          animation = value
+        case "--description":
+          guard description == nil else { throw CLIError.usage }
+          description = value
+        case "--activity-id":
+          guard activityID == nil else { throw CLIError.usage }
+          activityID = value
+        case "--keepalive-interval":
+          guard interval == nil, let parsed = Double(value), parsed.isFinite, parsed > 0
+          else { throw CLIError.usage }
+          interval = parsed
+        default:
+          throw CLIError.usage
+        }
+        index += 2
+      }
+      var request: [String: Any] = ["command": "start"]
+      if let animation { request["animation"] = try explicitAnimationForRequest(animation) }
+      if let description { request["description"] = description }
+      if let activityID { request["activity_id"] = activityID }
+      if let interval { request["keepalive_interval_seconds"] = NSNumber(value: interval) }
+      let client = try LocalAPIClient.connectOrStartServer()
+      guard let activityID = try client.command(request)["activity_id"] as? String else {
+        throw CLIError.api("The server returned an invalid activity response.")
+      }
+      print(activityID)
+      return 0
+    case "keepalive", "stop":
+      guard arguments.count == 2, !arguments[1].isEmpty else { throw CLIError.usage }
+      let client = try LocalAPIClient.connectOrStartServer()
+      let response = try client.command([
+        "command": subcommand, "activity_id": arguments[1],
+      ])
+      guard response["ok"] as? Bool == true else {
+        throw CLIError.api(response["error"] as? String ?? "The server rejected the request.")
+      }
+      return 0
+    default:
+      throw CLIError.usage
+    }
+  }
+
   private static func execute(_ cli: CLIArguments) throws -> Int32 {
     let executable = try resolveExecutable(cli.command)
-    let configuration = try AppConfiguration.load()
-    let animationsDirectory = AppConfiguration.configurationDirectory
-      .appendingPathComponent("animations", isDirectory: true)
-    try validateAnimation(cli.animation, in: animationsDirectory)
-    let keepaliveInterval = keepaliveInterval(for: configuration)
+    let keepaliveInterval = LocalAPIServer.defaultKeepaliveInterval
+    var request: [String: Any] = [
+      "command": "start",
+      "description": activityDescription(command: cli.command, arguments: cli.arguments),
+    ]
+    if let animation = cli.animation {
+      request["animation"] = try explicitAnimationForRequest(animation)
+    }
     let client = try LocalAPIClient.connectOrStartServer()
-    let activity = try client.command(["command": "start", "animation": cli.animation])
+    let activity = try client.command(request)
     guard let activityID = activity["activity_id"] as? String else {
       throw CLIError.api("The server returned an invalid activity response.")
     }
@@ -179,19 +307,119 @@ enum NyathingCLI {
     return child.terminationStatus
   }
 
+  private static func explicitAnimationForRequest(_ value: String) throws -> String {
+    if value == "random" { return value }
+    let directory = AppConfiguration.configurationDirectory
+    try AppConfiguration.prepareDirectory(directory)
+    return try resolveAnimation(
+      value, in: directory.appendingPathComponent("animations", isDirectory: true))
+  }
+
   static func validateAnimation(_ filename: String, in directory: URL) throws {
-    guard !filename.contains("/"), !filename.contains("\\"),
-      (try? SpriteAnimation.load(from: directory.appendingPathComponent(filename))) != nil
-    else {
-      throw CLIError.animationUnavailable(filename)
+    _ = try resolveAnimation(filename, in: directory)
+  }
+
+  static func resolveAnimation(
+    _ name: String, in directory: URL,
+    relativeTo baseDirectory: URL = URL(
+      fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+  ) throws -> String {
+    if name == "random" {
+      if let namedAnimation = try? resolveNamedAnimation(name, in: directory) {
+        return namedAnimation
+      }
+      let available = SpriteAnimation.loadAll(in: directory)
+      return available.keys.sorted().randomElement().map {
+        directory.appendingPathComponent($0).standardizedFileURL.path
+      } ?? builtInGhostAnimation
+    }
+    if isShortAnimationName(name) {
+      return try resolveNamedAnimation(name, in: directory)
+    }
+    if !name.contains("/"), !name.contains("\\") {
+      let installed = directory.appendingPathComponent(name).standardizedFileURL
+      if FileManager.default.fileExists(atPath: installed.path) {
+        return try resolveAnimation(installed.path, in: directory)
+      }
+    }
+    let path = URL(
+      fileURLWithPath: (name as NSString).expandingTildeInPath, relativeTo: baseDirectory
+    ).standardizedFileURL
+    do {
+      _ = try SpriteAnimation.load(from: path)
+      return path.path
+    } catch {
+      throw CLIError.animationUnavailable(
+        name, "could not load animation file: \(error.localizedDescription).")
     }
   }
 
-  static func keepaliveInterval(for configuration: AppConfiguration) -> TimeInterval {
-    min(configuration.keepaliveInterval, configuration.activityTimeout / 2)
+  private static func isShortAnimationName(_ name: String) -> Bool {
+    !name.contains("/") && !name.contains("\\")
+      && URL(fileURLWithPath: name).pathExtension.isEmpty
+      && name.range(of: #"_[0-9]+x[0-9]+$"#, options: .regularExpression) == nil
   }
 
-  static func resolveExecutable(_ command: String) throws -> String {
+  private static func resolveNamedAnimation(_ name: String, in directory: URL) throws -> String {
+    guard
+      let files = try? FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: nil)
+    else {
+      throw CLIError.animationUnavailable(
+        name,
+        "could not be checked because the animations directory is unavailable at \(directory.path)."
+      )
+    }
+
+    let pattern =
+      "^\(NSRegularExpression.escapedPattern(for: name))_([0-9]+)x([0-9]+)\\.png$"
+    guard
+      let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    else {
+      throw CLIError.animationUnavailable(name, "could not be resolved to a filename.")
+    }
+    let candidates = files.compactMap { file -> (url: URL, width: Int, height: Int)? in
+      let filename = file.lastPathComponent
+      guard
+        let match = regex.firstMatch(
+          in: filename, range: NSRange(filename.startIndex..., in: filename)),
+        let widthRange = Range(match.range(at: 1), in: filename),
+        let heightRange = Range(match.range(at: 2), in: filename),
+        let width = Int(filename[widthRange]), let height = Int(filename[heightRange])
+      else { return nil }
+      return (file, width, height)
+    }.sorted {
+      let leftArea = Double($0.width) * Double($0.height)
+      let rightArea = Double($1.width) * Double($1.height)
+      if leftArea != rightArea { return leftArea > rightArea }
+      if $0.width != $1.width { return $0.width > $1.width }
+      return $0.url.lastPathComponent < $1.url.lastPathComponent
+    }
+
+    var invalidAssetError: Error?
+    for candidate in candidates {
+      do {
+        _ = try SpriteAnimation.load(from: candidate.url)
+        return candidate.url.standardizedFileURL.path
+      } catch {
+        invalidAssetError = invalidAssetError ?? error
+      }
+    }
+    if let invalidAssetError {
+      throw CLIError.animationUnavailable(
+        name, "has no valid matching animation: \(invalidAssetError.localizedDescription).")
+    }
+    throw CLIError.animationUnavailable(
+      name,
+      "was not found in \(directory.path). Use 'nyathing list' to see available animations."
+    )
+  }
+
+  static func activityDescription(command: String, arguments: [String]) -> String {
+    ([command] + arguments).joined(separator: " ")
+  }
+
+  static func resolveExecutable(_ command: String, searchPath: String? = nil) throws -> String {
     if command.contains("/") {
       let path = URL(
         fileURLWithPath: command,
@@ -209,9 +437,11 @@ enum NyathingCLI {
     if FileManager.default.isExecutableFile(atPath: currentDirectoryPath) {
       return currentDirectoryPath
     }
-    let paths = ProcessInfo.processInfo.environment[
-      "PATH", default: "/usr/bin:/bin:/usr/sbin:/sbin"
-    ].split(separator: ":")
+    let paths =
+      (searchPath
+      ?? ProcessInfo.processInfo.environment[
+        "PATH", default: "/usr/bin:/bin:/usr/sbin:/sbin"
+      ]).split(separator: ":")
     for directory in paths {
       let path = URL(fileURLWithPath: String(directory)).appendingPathComponent(command).path
       if FileManager.default.isExecutableFile(atPath: path) { return path }
@@ -219,6 +449,88 @@ enum NyathingCLI {
     throw NSError(
       domain: NSPOSIXErrorDomain, code: Int(ENOENT),
       userInfo: [NSLocalizedDescriptionKey: "Command not found: \(command)"])
+  }
+}
+
+enum ShellCompletion {
+  static let supportedCommands = ["server", "client", "list", "completion"]
+
+  static func script(for shell: String) -> String? {
+    let commands = supportedCommands.joined(separator: " ")
+    switch shell {
+    case "zsh":
+      return #"""
+        #compdef nyathing
+
+        _nyathing() {
+          local -a commands animations
+          commands=(\#(commands))
+
+          case "${words[CURRENT-1]}" in
+            -a|--animation)
+              animations=(random ${(f)"$(nyathing list 2>/dev/null)"})
+              compadd -- "${animations[@]}"
+              return
+              ;;
+            server)
+              compadd -- start stop status
+              return
+              ;;
+            client)
+              compadd -- start keepalive stop
+              return
+              ;;
+            completion)
+              compadd -- zsh bash
+              return
+              ;;
+          esac
+
+          if (( CURRENT == 2 )); then
+            compadd -- "${commands[@]}" --animation -a --help --version
+          fi
+        }
+
+        compdef _nyathing nyathing
+        """#
+    case "bash":
+      return #"""
+        _nyathing() {
+          local cur prev animations
+          COMPREPLY=()
+          cur="${COMP_WORDS[COMP_CWORD]}"
+          prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+          case "$prev" in
+            -a|--animation)
+              animations="$(nyathing list 2>/dev/null)"
+              COMPREPLY=( $(compgen -W "random $animations" -- "$cur") )
+              return
+              ;;
+            server)
+              COMPREPLY=( $(compgen -W "start stop status" -- "$cur") )
+              return
+              ;;
+            client)
+              COMPREPLY=( $(compgen -W "start keepalive stop" -- "$cur") )
+              return
+              ;;
+            completion)
+              COMPREPLY=( $(compgen -W "zsh bash" -- "$cur") )
+              return
+              ;;
+          esac
+
+          if (( COMP_CWORD == 1 )); then
+            COMPREPLY=( $(compgen -W "\#(commands)" -- "$cur") )
+            COMPREPLY+=( $(compgen -W "--animation -a --help --version" -- "$cur") )
+          fi
+        }
+        complete -F _nyathing nyathing
+        """#
+    default:
+      return nil
+    }
   }
 }
 
@@ -232,8 +544,9 @@ private final class LocalAPIClient {
   static func connectOrStartServer() throws -> LocalAPIClient {
     if let connected = try? connect() { return connected }
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
-    process.arguments = ["--server"]
+    let executable = try NyathingCLI.resolveExecutable(CommandLine.arguments[0])
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = [LaunchAgentSupport.serverArgument]
     process.standardInput = FileHandle.nullDevice
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
@@ -274,7 +587,7 @@ private final class LocalAPIClient {
     return LocalAPIClient(descriptor: fd)
   }
 
-  func command(_ request: [String: String]) throws -> [String: Any] {
+  func command(_ request: [String: Any]) throws -> [String: Any] {
     lock.lock()
     defer { lock.unlock() }
     var data = try JSONSerialization.data(withJSONObject: request)
