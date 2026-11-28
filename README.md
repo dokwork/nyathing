@@ -9,6 +9,8 @@ Nyathing brings background processes to life with playful animations in the
 macOS menu bar. Clients start an animation when work begins and stop it when the
 task is done.
 
+https://github.com/user-attachments/assets/96a11a10-3c0f-4aa2-96d0-5159381da5da
+
 ## Contents
 
 - [↓ Install from archive](#-install-from-archive)
